@@ -1,0 +1,100 @@
+class CardSale {
+  final String? id;
+  final DateTime date;
+  final String userId;
+  final String branchId;
+  final String tid;
+  final String machineName;
+  final double amount;
+  final int? txnCount;
+  final String? notes;
+  final DateTime? createdAt;
+
+  CardSale({
+    this.id,
+    required this.date,
+    required this.userId,
+    required this.branchId,
+    required this.tid,
+    required this.machineName,
+    required this.amount,
+    this.txnCount,
+    this.notes,
+    this.createdAt,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      if (id != null) 'id': id,
+      'date': date.toIso8601String().split('T')[0],
+      'user_id': userId,
+      'branch_id': branchId,
+      'tid': tid,
+      'machine_name': machineName,
+      'amount': amount,
+      'txn_count': txnCount,
+      'notes': notes,
+      if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+    };
+  }
+
+  factory CardSale.fromJson(Map<String, dynamic> json) {
+    return CardSale(
+      id: json['id']?.toString(),
+      date: DateTime.parse(json['date']),
+      userId: json['user_id']?.toString() ?? '',
+      branchId: json['branch_id']?.toString() ?? '',
+      tid: json['tid'] ?? '',
+      machineName: json['machine_name'] ?? '',
+      amount: (json['amount'] as num).toDouble(),
+      txnCount: json['txn_count'],
+      notes: json['notes'],
+      createdAt: json['created_at'] != null
+          ? DateTime.parse(json['created_at'])
+          : null,
+    );
+  }
+}
+
+class CardMachine {
+  final String? id;
+  final String name;
+  final String tid;
+  final String? location;
+  final String? branchId;
+  final DateTime? createdAt;
+
+  CardMachine({
+    this.id,
+    required this.name,
+    required this.tid,
+    this.location,
+    this.branchId,
+    this.createdAt,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      if (id != null) 'id': id,
+      'name': name,
+      'tid': tid,
+      'location': location,
+      if (branchId != null) 'branch_id': branchId,
+      if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+    };
+  }
+
+  factory CardMachine.fromJson(Map<String, dynamic> json) {
+    return CardMachine(
+      id: json['id']?.toString(),
+      name: json['name'] ?? '',
+      tid: json['tid'] ?? '',
+      location: json['location'],
+      branchId: json['branch_id']?.toString(),
+      createdAt: json['created_at'] != null
+          ? DateTime.parse(json['created_at'])
+          : null,
+    );
+  }
+}
+
