@@ -126,58 +126,71 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
 
     final newStatus = await showDialog<CreditExpenseStatus>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Change Status'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Date: ${DateFormat('d MMM yyyy').format(expense.date)}',
-              style: const TextStyle(fontSize: 14),
+      builder: (context) {
+        CreditExpenseStatus selectedStatus = expense.status;
+        return StatefulBuilder(
+          builder: (context, setState) => AlertDialog(
+            title: const Text('Change Status'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Date: ${DateFormat('d MMM yyyy').format(expense.date)}',
+                  style: const TextStyle(fontSize: 14),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Amount: ₹${expense.amount.toStringAsFixed(2)}',
+                  style: const TextStyle(fontSize: 14),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Select new status:',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  title: const Text('Paid'),
+                  leading: Radio<CreditExpenseStatus>(
+                    value: CreditExpenseStatus.paid,
+                    // ignore: deprecated_member_use
+                    groupValue: selectedStatus,
+                    // ignore: deprecated_member_use
+                    onChanged: null,
+                    activeColor: Colors.green,
+                  ),
+                  selected: selectedStatus == CreditExpenseStatus.paid,
+                  onTap: () {
+                    Navigator.pop(context, CreditExpenseStatus.paid);
+                  },
+                ),
+                ListTile(
+                  title: const Text('Unpaid'),
+                  leading: Radio<CreditExpenseStatus>(
+                    value: CreditExpenseStatus.unpaid,
+                    // ignore: deprecated_member_use
+                    groupValue: selectedStatus,
+                    // ignore: deprecated_member_use
+                    onChanged: null,
+                    activeColor: Colors.orange,
+                  ),
+                  selected: selectedStatus == CreditExpenseStatus.unpaid,
+                  onTap: () {
+                    Navigator.pop(context, CreditExpenseStatus.unpaid);
+                  },
+                ),
+              ],
             ),
-            const SizedBox(height: 4),
-            Text(
-              'Amount: ₹${expense.amount.toStringAsFixed(2)}',
-              style: const TextStyle(fontSize: 14),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Select new status:',
-              style: TextStyle(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 12),
-            RadioListTile<CreditExpenseStatus>(
-              title: const Text('Paid'),
-              value: CreditExpenseStatus.paid,
-              groupValue: expense.status,
-              onChanged: (value) {
-                if (value != null) {
-                  Navigator.pop(context, value);
-                }
-              },
-              activeColor: Colors.green,
-            ),
-            RadioListTile<CreditExpenseStatus>(
-              title: const Text('Unpaid'),
-              value: CreditExpenseStatus.unpaid,
-              groupValue: expense.status,
-              onChanged: (value) {
-                if (value != null) {
-                  Navigator.pop(context, value);
-                }
-              },
-              activeColor: Colors.orange,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
 
     if (newStatus != null && newStatus != expense.status) {

@@ -95,8 +95,28 @@ class _LoginScreenState extends State<LoginScreen> {
             .map((item) => Branch.fromJson(item['branches']))
             .toList();
 
+        // Check if user has any access (branches or business ownership)
+        if (branches.isEmpty) {
+          // Check if user is a business owner
+          final businessOwnersResponse = await Supabase.instance.client
+              .from('business_owners')
+              .select()
+              .eq('user_id', userId)
+              .limit(1);
+          
+          if ((businessOwnersResponse as List).isEmpty) {
+            // User has no access, prevent login
+            throw Exception('User account has been deactivated. Please contact administrator.');
+          }
+        }
+
         // Set current user and branches
-        authService.setUser(user, branches);
+        await authService.setUser(user, branches);
+        // Refresh business owner status (important for canManageUsers to work)
+        await authService.refreshBusinessOwnerStatus();
+      } else {
+        // User not found in database, prevent login
+        throw Exception('User account not found. Please contact administrator.');
       }
     } catch (e) {
       debugPrint('Error loading user data: $e');

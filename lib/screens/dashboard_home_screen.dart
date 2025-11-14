@@ -140,16 +140,20 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
   @override
   Widget build(BuildContext context) {
     final branches = _authService.userBranches;
-    final isOwner = _authService.canManageUsers();
+    final isBusinessOwner = _authService.canManageUsers();
+    final isBranchOwner = _authService.isBranchOwner();
+    
+    // Show owner dashboard icon if user is a business owner OR branch owner
+    final canAccessOwnerDashboard = isBusinessOwner || isBranchOwner;
     
     // Debug info
-    debugPrint('Dashboard - Branches count: ${branches.length}, IsOwner: $isOwner, CurrentRole: ${_authService.currentRole}');
+    debugPrint('Dashboard - Branches count: ${branches.length}, IsBusinessOwner: $isBusinessOwner, IsBranchOwner: $isBranchOwner, CurrentRole: ${_authService.currentRole}');
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Dashboard'),
         actions: [
-          if (isOwner)
+          if (canAccessOwnerDashboard)
             IconButton(
               icon: const Icon(Icons.analytics),
               onPressed: () {
@@ -216,11 +220,11 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Branch Management - Show for all users, but with different options
-                    _buildBranchManagement(branches, isOwner),
+                    _buildBranchManagement(branches, isBusinessOwner),
                     const SizedBox(height: 16),
 
-                    // People & Access - Show for owners
-                    if (isOwner) ...[
+                    // People & Access - Show for business owners
+                    if (isBusinessOwner) ...[
                       _buildPeopleAccess(),
                       const SizedBox(height: 16),
                     ] else ...[
@@ -556,8 +560,28 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
   }
 
   Widget _buildAccessInfo() {
-    final role = _authService.currentRole;
-    final branch = _authService.currentBranch;
+    final branchUsers = _authService.branchUsers;
+    final userBranches = _authService.userBranches;
+    
+    // Get all roles across all branches
+    final List<Map<String, String>> branchRoleList = [];
+    for (var bu in branchUsers) {
+      final branch = userBranches.firstWhere(
+        (b) => b.id == bu.branchId,
+        orElse: () => userBranches.isNotEmpty ? userBranches.first : Branch(
+          id: bu.branchId,
+          name: 'Unknown',
+          location: '',
+          businessId: '',
+          status: BranchStatus.active,
+        ),
+      );
+      branchRoleList.add({
+        'name': branch.name,
+        'location': branch.location,
+        'role': bu.role.toString().split('.').last.toUpperCase(),
+      });
+    }
     
     return Card(
       child: Padding(
@@ -586,35 +610,85 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            if (branch != null)
-              ListTile(
-                leading: const Icon(Icons.store, color: Colors.blue),
-                title: Text('Branch: ${branch.name}'),
-                subtitle: Text('Location: ${branch.location}'),
-              ),
-            const SizedBox(height: 8),
-            ListTile(
-              leading: Icon(
-                role == UserRole.owner
-                    ? Icons.admin_panel_settings
-                    : role == UserRole.manager
-                        ? Icons.manage_accounts
-                        : Icons.person,
-                color: role == UserRole.owner
-                    ? Colors.blue
-                    : role == UserRole.manager
-                        ? Colors.orange
-                        : Colors.grey,
-              ),
-              title: Text('Role: ${role?.toString().split('.').last.toUpperCase() ?? 'N/A'}'),
-              subtitle: Text(
-                role == UserRole.owner
-                    ? 'Full access: Edit any date, manage users & branches'
-                    : role == UserRole.manager
-                        ? 'You can edit today and yesterday\'s data'
-                        : 'You can only edit today\'s data',
-              ),
-            ),
+            // Show all roles across branches in the requested format
+            ...branchRoleList.map((br) {
+              final roleName = br['role']!;
+              final role = roleName == 'OWNER' 
+                  ? UserRole.owner 
+                  : roleName == 'MANAGER' 
+                      ? UserRole.manager 
+                      : UserRole.staff;
+              
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          role == UserRole.owner
+                              ? Icons.admin_panel_settings
+                              : role == UserRole.manager
+                                  ? Icons.manage_accounts
+                                  : Icons.person,
+                          color: role == UserRole.owner
+                              ? Colors.blue
+                              : role == UserRole.manager
+                                  ? Colors.orange
+                                  : Colors.grey,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Branch: ${br['name']}',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 28),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Location: ${br['location']}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey[400],
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Role: $roleName',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey[400],
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            role == UserRole.owner
+                                ? 'Access: Full access - Edit any date, manage users & branches'
+                                : role == UserRole.manager
+                                    ? 'Access: Can edit today and yesterday\'s data'
+                                    : 'Access: Can only edit today\'s data',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey[400],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
           ],
         ),
       ),

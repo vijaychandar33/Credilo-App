@@ -366,7 +366,7 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
               children: [
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    value: expense.supplier,
+                    initialValue: expense.supplier,
                     decoration: const InputDecoration(
                       labelText: 'Supplier',
                       border: OutlineInputBorder(),
@@ -397,7 +397,7 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
                 Expanded(
                   flex: 2,
                   child: DropdownButtonFormField<String>(
-                    value: expense.category,
+                    initialValue: expense.category,
                     decoration: const InputDecoration(
                       labelText: 'Category',
                       border: OutlineInputBorder(),

@@ -158,29 +158,38 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 
       // Step 3: Create business (check if user already has a business)
       Business business;
-      final existingBusinessesResponse = await supabase
-          .from('businesses')
-          .select()
-          .eq('owner_id', userId)
+      // Check if user is already a business owner
+      final existingBusinessOwnerResponse = await supabase
+          .from('business_owners')
+          .select('business_id, businesses(*)')
+          .eq('user_id', userId)
           .limit(1);
 
-      final existingBusinesses = existingBusinessesResponse as List;
-      if (existingBusinesses.isNotEmpty) {
+      final existingBusinessOwners = existingBusinessOwnerResponse as List;
+      if (existingBusinessOwners.isNotEmpty && existingBusinessOwners.first['businesses'] != null) {
         // User already has a business, use the first one
-        business = Business.fromJson(existingBusinesses.first);
+        business = Business.fromJson(existingBusinessOwners.first['businesses']);
         debugPrint('Using existing business: ${business.name}');
       } else {
-        // Create new business
+        // Create new business (without owner_id)
         final businessResponse = await supabase
             .from('businesses')
             .insert({
               'name': _businessNameController.text.trim(),
-              'owner_id': userId,
             })
             .select()
             .single();
 
         business = Business.fromJson(businessResponse);
+        
+        // Add user to business_owners table
+        await supabase
+            .from('business_owners')
+            .insert({
+              'business_id': business.id,
+              'user_id': userId,
+            });
+        debugPrint('Added user to business_owners table');
       }
       
       // Ensure business is committed and session is active before branch creation
@@ -196,20 +205,20 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       await Future.delayed(const Duration(milliseconds: 300));
       
       // Verify business exists and user is owner (for debugging)
-      final verifyBusiness = await supabase
-          .from('businesses')
+      final verifyBusinessOwner = await supabase
+          .from('business_owners')
           .select()
-          .eq('id', business.id)
-          .eq('owner_id', userId)
+          .eq('business_id', business.id)
+          .eq('user_id', userId)
           .maybeSingle();
       
-      if (verifyBusiness == null) {
-        debugPrint('ERROR: Business not found or user is not owner');
+      if (verifyBusinessOwner == null) {
+        debugPrint('ERROR: User is not a business owner');
         debugPrint('Business ID: ${business.id}, User ID: $userId');
         throw Exception('Business verification failed. Please try again.');
       }
       
-      debugPrint('Business verified: ${business.name}, Owner: $userId');
+      debugPrint('Business verified: ${business.name}, User is business owner');
 
       // Step 4: Create first branch (check if business already has branches)
       Branch branch;
@@ -244,7 +253,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           // Verify we can see the business (RLS check)
           final canSeeBusiness = await supabase
               .from('businesses')
-              .select('id, owner_id')
+              .select('id')
               .eq('id', business.id)
               .maybeSingle();
           
@@ -252,7 +261,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
             throw Exception('Cannot access business. RLS policy may be blocking access.');
           }
           
-          debugPrint('Can see business: ${canSeeBusiness['id']}, owner: ${canSeeBusiness['owner_id']}');
+          debugPrint('Can see business: ${canSeeBusiness['id']}');
           
           final branchResponse = await supabase
               .from('branches')
@@ -320,9 +329,13 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       // Double-check: reload branch users to ensure they're loaded
       await authService.refreshBranches();
       
+      // Refresh business owner status (important for canManageUsers to work)
+      await authService.refreshBusinessOwnerStatus();
+      
       // Verify role is set
       debugPrint('Registration complete - Current role: ${authService.currentRole}');
       debugPrint('Can manage users: ${authService.canManageUsers()}');
+      debugPrint('Is business owner: ${authService.isBusinessOwner()}');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

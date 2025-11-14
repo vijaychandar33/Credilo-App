@@ -37,16 +37,19 @@ class _AddBranchScreenState extends State<AddBranchScreen> {
         throw Exception('User not logged in');
       }
 
-      // Get user's business
-      final businessResponse = await Supabase.instance.client
-          .from('businesses')
-          .select()
-          .eq('owner_id', currentUser.id)
+      // Get user's business from business_owners table
+      final businessOwnerResponse = await Supabase.instance.client
+          .from('business_owners')
+          .select('business_id, businesses(*)')
+          .eq('user_id', currentUser.id)
+          .limit(1)
           .maybeSingle();
 
-      if (businessResponse == null) {
-        throw Exception('Business not found');
+      if (businessOwnerResponse == null || businessOwnerResponse['businesses'] == null) {
+        throw Exception('Business not found. You must be a business owner to add branches.');
       }
+      
+      final businessResponse = businessOwnerResponse['businesses'];
 
       final businessId = businessResponse['id'] as String;
 

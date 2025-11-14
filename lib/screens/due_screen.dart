@@ -541,7 +541,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
               children: [
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    value: due.status ?? 'Open',
+                    initialValue: due.status ?? 'Open',
                     decoration: const InputDecoration(
                       labelText: 'Status',
                       border: OutlineInputBorder(),

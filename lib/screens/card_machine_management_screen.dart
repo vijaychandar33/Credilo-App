@@ -107,11 +107,14 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
                 return;
               }
 
+              final navigator = Navigator.of(context);
+              final messenger = ScaffoldMessenger.of(context);
+              
               try {
                 final branch = _authService.currentBranch;
                 if (branch == null) {
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    messenger.showSnackBar(
                       const SnackBar(content: Text('No branch selected')),
                     );
                   }
@@ -129,23 +132,21 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
                 );
 
                 await _dbService.saveCardMachine(updatedMachine);
-                if (mounted) {
-                  Navigator.pop(context);
-                  _loadMachines();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(machine == null
-                          ? 'Machine added successfully'
-                          : 'Machine updated successfully'),
-                    ),
-                  );
-                }
+                if (!mounted) return;
+                navigator.pop();
+                _loadMachines();
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text(machine == null
+                        ? 'Machine added successfully'
+                        : 'Machine updated successfully'),
+                  ),
+                );
               } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error saving machine: $e')),
-                  );
-                }
+                if (!mounted) return;
+                messenger.showSnackBar(
+                  SnackBar(content: Text('Error saving machine: $e')),
+                );
               }
             },
             child: Text(machine == null ? 'Add' : 'Update'),

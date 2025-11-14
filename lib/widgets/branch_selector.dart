@@ -41,7 +41,7 @@ class BranchSelector extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: DropdownButtonFormField<Branch>(
         isExpanded: true,
-        value: currentBranch,
+        initialValue: currentBranch,
         decoration: InputDecoration(
           labelText: 'Branch',
           border: OutlineInputBorder(
