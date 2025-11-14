@@ -22,7 +22,7 @@ class _CardScreenState extends State<CardScreen> {
   final AuthService _authService = AuthService();
   bool _isSaving = false;
   bool _isLoading = false;
-  List<String> _existingSaleIds = []; // Track existing sale IDs
+  final List<String> _existingSaleIds = []; // Track existing sale IDs
 
   @override
   void initState() {

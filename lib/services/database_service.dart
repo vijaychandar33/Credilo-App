@@ -7,6 +7,8 @@ import '../models/qr_payment.dart';
 import '../models/due.dart';
 import '../models/cash_closing.dart';
 import '../models/branch.dart';
+import '../models/credit_expense.dart';
+import '../models/supplier.dart';
 import 'package:flutter/foundation.dart';
 
 class DatabaseService {
@@ -61,6 +63,244 @@ class DatabaseService {
       await _client.from('cash_expenses').delete().eq('id', id);
     } catch (e) {
       debugPrint('Error deleting cash expense: $e');
+      rethrow;
+    }
+  }
+
+  // Credit Expenses
+  Future<List<CreditExpense>> getCreditExpenses(DateTime date, String branchId) async {
+    try {
+      final response = await _client
+          .from('credit_expenses')
+          .select()
+          .eq('date', date.toIso8601String().split('T')[0])
+          .eq('branch_id', branchId)
+          .order('created_at', ascending: false);
+
+      return (response as List)
+          .map((json) => CreditExpense.fromJson(json))
+          .toList();
+    } catch (e) {
+      debugPrint('Error fetching credit expenses: $e');
+      return [];
+    }
+  }
+
+  Future<void> saveCreditExpense(CreditExpense expense) async {
+    try {
+      await _client.from('credit_expenses').insert(expense.toJson());
+    } catch (e) {
+      debugPrint('Error saving credit expense: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> deleteCreditExpense(String id) async {
+    try {
+      await _client.from('credit_expenses').delete().eq('id', id);
+    } catch (e) {
+      debugPrint('Error deleting credit expense: $e');
+      rethrow;
+    }
+  }
+
+  Future<List<CreditExpense>> getCreditExpensesBySupplier(String supplierName, String businessId) async {
+    try {
+      // First get all branch IDs for this business
+      final branchesResponse = await _client
+          .from('branches')
+          .select('id')
+          .eq('business_id', businessId);
+      
+      final branchIds = (branchesResponse as List)
+          .map((b) => b['id'] as String)
+          .toList();
+      
+      if (branchIds.isEmpty) {
+        return [];
+      }
+
+      // Get expenses with branch info
+      var query = _client
+          .from('credit_expenses')
+          .select('''
+            *,
+            branches!credit_expenses_branch_id_fkey (
+              id,
+              name,
+              location
+            )
+          ''')
+          .eq('supplier', supplierName);
+      
+      // Filter by branch IDs
+      if (branchIds.length == 1) {
+        query = query.eq('branch_id', branchIds[0]);
+      } else if (branchIds.length > 1) {
+        // Use OR conditions for multiple branches
+        query = query.or(branchIds.map((id) => 'branch_id.eq.$id').join(','));
+      } else {
+        return [];
+      }
+      
+      final response = await query.order('date', ascending: false);
+
+      return (response as List)
+          .map((json) => CreditExpense.fromJson(json))
+          .toList();
+    } catch (e) {
+      debugPrint('Error fetching credit expenses by supplier: $e');
+      // Fallback to simple query without branch info
+      try {
+        final branchesResponse = await _client
+            .from('branches')
+            .select('id')
+            .eq('business_id', businessId);
+        
+        final branchIds = (branchesResponse as List)
+            .map((b) => b['id'] as String)
+            .toList();
+        
+        if (branchIds.isEmpty) {
+          return [];
+        }
+
+        var simpleQuery = _client
+            .from('credit_expenses')
+            .select()
+            .eq('supplier', supplierName);
+        
+        if (branchIds.length == 1) {
+          simpleQuery = simpleQuery.eq('branch_id', branchIds[0]);
+        } else if (branchIds.length > 1) {
+          simpleQuery = simpleQuery.or(branchIds.map((id) => 'branch_id.eq.$id').join(','));
+        } else {
+          return [];
+        }
+        
+        final simpleResponse = await simpleQuery.order('date', ascending: false);
+        return (simpleResponse as List)
+            .map((json) => CreditExpense.fromJson(json))
+            .toList();
+      } catch (e2) {
+        debugPrint('Error in fallback query: $e2');
+        return [];
+      }
+    }
+  }
+
+  Future<void> updateCreditExpenseStatus(String id, CreditExpenseStatus status) async {
+    try {
+      await _client
+          .from('credit_expenses')
+          .update({'status': status == CreditExpenseStatus.paid ? 'paid' : 'unpaid'})
+          .eq('id', id);
+    } catch (e) {
+      debugPrint('Error updating credit expense status: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> updateCreditExpensesStatus(List<String> ids, CreditExpenseStatus status) async {
+    try {
+      for (var id in ids) {
+        await _client
+            .from('credit_expenses')
+            .update({'status': status == CreditExpenseStatus.paid ? 'paid' : 'unpaid'})
+            .eq('id', id);
+      }
+    } catch (e) {
+      debugPrint('Error updating credit expenses status: $e');
+      rethrow;
+    }
+  }
+
+  // Suppliers
+  Future<List<Supplier>> getSuppliers(String businessId) async {
+    try {
+      final response = await _client
+          .from('suppliers')
+          .select()
+          .eq('business_id', businessId)
+          .order('name', ascending: true);
+
+      return (response as List)
+          .map((json) => Supplier.fromJson(json))
+          .toList();
+    } catch (e) {
+      debugPrint('Error fetching suppliers: $e');
+      return [];
+    }
+  }
+
+  Future<void> saveSupplier(Supplier supplier) async {
+    try {
+      await _client.from('suppliers').insert(supplier.toJson());
+    } catch (e) {
+      debugPrint('Error saving supplier: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> updateSupplier(Supplier supplier) async {
+    if (supplier.id == null) {
+      throw Exception('Supplier ID is required for update');
+    }
+    try {
+      await _client
+          .from('suppliers')
+          .update({
+            'name': supplier.name,
+            'contact': supplier.contact,
+            'address': supplier.address,
+          })
+          .eq('id', supplier.id!);
+    } catch (e) {
+      debugPrint('Error updating supplier: $e');
+      rethrow;
+    }
+  }
+
+  Future<bool> hasCreditExpenses(String supplierName, String businessId) async {
+    try {
+      // Get all branch IDs for this business
+      final branchesResponse = await _client
+          .from('branches')
+          .select('id')
+          .eq('business_id', businessId);
+      
+      final branchIds = (branchesResponse as List)
+          .map((b) => b['id'] as String)
+          .toList();
+      
+      if (branchIds.isEmpty) {
+        return false;
+      }
+
+      var query = _client
+          .from('credit_expenses')
+          .select('id')
+          .eq('supplier', supplierName);
+      
+      if (branchIds.length == 1) {
+        query = query.eq('branch_id', branchIds[0]);
+      } else if (branchIds.length > 1) {
+        query = query.or(branchIds.map((id) => 'branch_id.eq.$id').join(','));
+      }
+      
+      final response = await query.limit(1);
+      return (response as List).isNotEmpty;
+    } catch (e) {
+      debugPrint('Error checking credit expenses: $e');
+      return true; // Return true to be safe (prevent deletion if check fails)
+    }
+  }
+
+  Future<void> deleteSupplier(String id) async {
+    try {
+      await _client.from('suppliers').delete().eq('id', id);
+    } catch (e) {
+      debugPrint('Error deleting supplier: $e');
       rethrow;
     }
   }
@@ -246,6 +486,15 @@ class DatabaseService {
       await _client.from('qr_payments').insert(payment.toJson());
     } catch (e) {
       debugPrint('Error saving QR payment: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> deleteQrPayment(String paymentId) async {
+    try {
+      await _client.from('qr_payments').delete().eq('id', paymentId);
+    } catch (e) {
+      debugPrint('Error deleting QR payment: $e');
       rethrow;
     }
   }

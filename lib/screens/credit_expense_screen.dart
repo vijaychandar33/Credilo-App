@@ -1,26 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import '../models/cash_expense.dart';
+import '../models/credit_expense.dart';
+import '../models/supplier.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
+import 'supplier_management_screen.dart';
 
-class CashExpenseScreen extends StatefulWidget {
+class CreditExpenseScreen extends StatefulWidget {
   final DateTime selectedDate;
 
-  const CashExpenseScreen({super.key, required this.selectedDate});
+  const CreditExpenseScreen({super.key, required this.selectedDate});
 
   @override
-  State<CashExpenseScreen> createState() => _CashExpenseScreenState();
+  State<CreditExpenseScreen> createState() => _CreditExpenseScreenState();
 }
 
-class _CashExpenseScreenState extends State<CashExpenseScreen> {
-  final List<CashExpenseRow> _expenses = [];
+class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
+  final List<CreditExpenseRow> _expenses = [];
   final DatabaseService _dbService = DatabaseService();
   final AuthService _authService = AuthService();
   bool _isSaving = false;
   bool _isLoading = false;
-  final List<String> _existingExpenseIds = []; // Track existing expense IDs
+  final List<String> _existingExpenseIds = [];
+  List<Supplier> _suppliers = [];
   final List<String> _categories = [
     'Supplies',
     'Wages',
@@ -45,19 +48,22 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
         setState(() {
           _isLoading = false;
         });
+        await _loadSuppliers();
         _addNewRow();
         return;
       }
 
-      final expenses = await _dbService.getCashExpenses(widget.selectedDate, branch.id);
+      await _loadSuppliers();
+
+      final expenses = await _dbService.getCreditExpenses(widget.selectedDate, branch.id);
       
       if (expenses.isNotEmpty) {
         setState(() {
           _expenses.clear();
           _existingExpenseIds.clear();
           for (var expense in expenses) {
-            final row = CashExpenseRow();
-            row.itemController.text = expense.item;
+            final row = CreditExpenseRow();
+            row.supplier = expense.supplier;
             row.amountController.text = expense.amount.toStringAsFixed(2);
             row.category = expense.category;
             row.amount = expense.amount;
@@ -74,7 +80,8 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
         _addNewRow();
       }
     } catch (e) {
-      debugPrint('Error loading cash expenses: $e');
+      debugPrint('Error loading credit expenses: $e');
+      await _loadSuppliers();
       _addNewRow();
     } finally {
       setState(() {
@@ -83,9 +90,51 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
     }
   }
 
+  Future<void> _loadSuppliers() async {
+    try {
+      final branch = _authService.currentBranch;
+      if (branch == null) {
+        setState(() {
+          _suppliers = [Supplier(name: 'Others', businessId: '')];
+        });
+        return;
+      }
+
+      final suppliers = await _dbService.getSuppliers(branch.businessId);
+      setState(() {
+        // Remove duplicates by name (case-insensitive)
+        final uniqueSuppliers = <String, Supplier>{};
+        for (var supplier in suppliers) {
+          final key = supplier.name.toLowerCase();
+          if (!uniqueSuppliers.containsKey(key)) {
+            uniqueSuppliers[key] = supplier;
+          }
+        }
+        _suppliers = uniqueSuppliers.values.toList();
+        
+        // Ensure "Others" exists and is first
+        if (!_suppliers.any((s) => s.name.toLowerCase() == 'others')) {
+          _suppliers.insert(0, Supplier(name: 'Others', businessId: branch.businessId));
+        } else {
+          // Move "Others" to first position
+          final others = _suppliers.firstWhere((s) => s.name.toLowerCase() == 'others');
+          _suppliers.remove(others);
+          _suppliers.insert(0, others);
+        }
+      });
+    } catch (e) {
+      debugPrint('Error loading suppliers: $e');
+      // Add default "Others" supplier
+      final branch = _authService.currentBranch;
+      setState(() {
+        _suppliers = [Supplier(name: 'Others', businessId: branch?.businessId ?? '')];
+      });
+    }
+  }
+
   void _addNewRow() {
     setState(() {
-      _expenses.add(CashExpenseRow());
+      _expenses.add(CreditExpenseRow());
     });
   }
 
@@ -132,7 +181,7 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
       // Delete existing expenses for this date to avoid duplicates
       for (var expenseId in _existingExpenseIds) {
         try {
-          await _dbService.deleteCashExpense(expenseId);
+          await _dbService.deleteCreditExpense(expenseId);
         } catch (e) {
           debugPrint('Error deleting existing expense: $e');
         }
@@ -141,26 +190,27 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
       // Save all current expenses
       for (var expenseRow in _expenses) {
         if (expenseRow.amount != null && expenseRow.amount! > 0) {
-          if (expenseRow.itemController.text.trim().isEmpty) {
-            continue; // Skip if item name is empty
+          if (expenseRow.supplier == null || expenseRow.supplier!.isEmpty) {
+            continue; // Skip if supplier is not selected
           }
           if (expenseRow.category == null) {
             continue; // Skip if category is not selected
           }
 
-          final expense = CashExpense(
+          final expense = CreditExpense(
             date: widget.selectedDate,
             userId: user.id,
             branchId: branch.id,
-            item: expenseRow.itemController.text.trim(),
+            supplier: expenseRow.supplier!,
             category: expenseRow.category!,
             amount: expenseRow.amount!,
             note: expenseRow.noteController.text.trim().isEmpty
                 ? null
                 : expenseRow.noteController.text.trim(),
+            status: CreditExpenseStatus.unpaid, // Default to unpaid
           );
 
-          await _dbService.saveCashExpense(expense);
+          await _dbService.saveCreditExpense(expense);
         }
       }
 
@@ -169,14 +219,14 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Expenses saved successfully')),
+          const SnackBar(content: Text('Credit expenses saved successfully')),
         );
         // Don't navigate away - let user continue editing if needed
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving expenses: $e')),
+          SnackBar(content: Text('Error saving credit expenses: $e')),
         );
       }
     } finally {
@@ -188,12 +238,22 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
     }
   }
 
+  Future<void> _openSupplierManagement() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const SupplierManagementScreen()),
+    );
+    // Reload suppliers after returning
+    await _loadSuppliers();
+    setState(() {}); // Refresh UI to show updated suppliers
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(
-          title: Text('Cash Daily Expense - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
+          title: Text('Credit Expense - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
         ),
         body: const Center(child: CircularProgressIndicator()),
       );
@@ -201,7 +261,14 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Cash Daily Expense - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
+        title: Text('Credit Expense - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.business),
+            onPressed: _openSupplierManagement,
+            tooltip: 'Manage Suppliers',
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -216,7 +283,7 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
                     child: OutlinedButton.icon(
                       onPressed: _addNewRow,
                       icon: const Icon(Icons.add),
-                      label: const Text('Add Expense Item'),
+                      label: const Text('Add Credit Expense'),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
@@ -245,7 +312,7 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
-                      'Total Expenses:',
+                      'Total Credit Expenses:',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -298,13 +365,24 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
             Row(
               children: [
                 Expanded(
-                  child: TextField(
-                    controller: expense.itemController,
+                  child: DropdownButtonFormField<String>(
+                    value: expense.supplier,
                     decoration: const InputDecoration(
-                      labelText: 'Item / Description',
+                      labelText: 'Supplier',
                       border: OutlineInputBorder(),
                       isDense: true,
                     ),
+                    items: _suppliers.map((supplier) {
+                      return DropdownMenuItem(
+                        value: supplier.name,
+                        child: Text(supplier.name),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      setState(() {
+                        expense.supplier = value;
+                      });
+                    },
                   ),
                 ),
                 IconButton(
@@ -319,7 +397,7 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
                 Expanded(
                   flex: 2,
                   child: DropdownButtonFormField<String>(
-                    initialValue: expense.category,
+                    value: expense.category,
                     decoration: const InputDecoration(
                       labelText: 'Category',
                       border: OutlineInputBorder(),
@@ -377,19 +455,26 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
       ),
     );
   }
+
+  @override
+  void dispose() {
+    for (var expense in _expenses) {
+      expense.dispose();
+    }
+    super.dispose();
+  }
 }
 
-class CashExpenseRow {
-  final TextEditingController itemController = TextEditingController();
+class CreditExpenseRow {
   final TextEditingController amountController = TextEditingController();
   final TextEditingController noteController = TextEditingController();
+  String? supplier;
   String? category;
   double? amount;
 
-  CashExpenseRow();
+  CreditExpenseRow();
 
   void dispose() {
-    itemController.dispose();
     amountController.dispose();
     noteController.dispose();
   }

@@ -22,7 +22,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
   final AuthService _authService = AuthService();
   bool _isSaving = false;
   bool _isLoading = false;
-  List<String> _existingDueIds = []; // Track existing due IDs
+  final List<String> _existingDueIds = []; // Track existing due IDs
 
   @override
   void initState() {
@@ -80,9 +80,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
                 break;
             }
             // Ensure status is never null
-            if (row.status == null) {
-              row.status = 'Open';
-            }
+            row.status ??= 'Open';
             
             if (due.remarks != null) {
               row.remarksController.text = due.remarks!;
@@ -385,8 +383,19 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.all(16),
-            itemCount: dues.length,
+            itemCount: dues.length + 1, // +1 for the Add button
             itemBuilder: (context, index) {
+              if (index == dues.length) {
+                // Add button as the last item
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: FloatingActionButton.extended(
+                    onPressed: onAdd,
+                    label: const Text('Add'),
+                    icon: const Icon(Icons.add),
+                  ),
+                );
+              }
               return _buildDueRow(index, dues[index], () => onRemove(index));
             },
           ),
@@ -426,32 +435,21 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
                 ],
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: FloatingActionButton.extended(
-                      onPressed: onAdd,
-                      label: const Text('Add'),
-                      icon: const Icon(Icons.add),
-                    ),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isSaving ? null : _save,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: _isSaving ? null : _save,
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      child: _isSaving
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Save', style: TextStyle(fontSize: 16)),
-                    ),
-                  ),
-                ],
+                  child: _isSaving
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Save', style: TextStyle(fontSize: 16)),
+                ),
               ),
             ],
           ),

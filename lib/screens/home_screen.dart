@@ -4,6 +4,7 @@ import '../widgets/date_selector.dart';
 import '../services/auth_service.dart';
 import '../models/branch.dart';
 import 'cash_expense_screen.dart';
+import 'credit_expense_screen.dart';
 import 'cash_balance_screen.dart';
 import 'card_screen.dart';
 import 'online_sales_screen.dart';
@@ -162,6 +163,24 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                 children: [
                   _buildQuickActionButton(
                     context,
+                    'Credit Expense',
+                    Icons.credit_card,
+                    Colors.amber,
+                    canEdit
+                        ? () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => CreditExpenseScreen(
+                                  selectedDate: _selectedDate,
+                                ),
+                              ),
+                            )
+                        : null,
+                    disabled: !canEdit,
+                  ),
+                  const SizedBox(height: 12),
+                  _buildQuickActionButton(
+                    context,
                     'Cash Daily Expense',
                     Icons.receipt_long,
                     Colors.blue,
@@ -234,7 +253,7 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                   const SizedBox(height: 12),
                   _buildQuickActionButton(
                     context,
-                    'Paytm / QR',
+                    'UPI',
                     Icons.qr_code,
                     Colors.teal,
                     canEdit

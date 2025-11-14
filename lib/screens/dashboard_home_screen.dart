@@ -69,8 +69,12 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
 
       for (var branch in branches) {
         final cashExpenses = await _dbService.getCashExpenses(today, branch.id);
-        final branchExpenses = cashExpenses.fold(0.0, (sum, e) => sum + e.amount);
-        totalExpenses += branchExpenses;
+        final branchCashExpenses = cashExpenses.fold(0.0, (sum, e) => sum + e.amount);
+        
+        final creditExpenses = await _dbService.getCreditExpenses(today, branch.id);
+        final branchCreditExpenses = creditExpenses.fold(0.0, (sum, e) => sum + e.amount);
+        
+        totalExpenses += branchCashExpenses + branchCreditExpenses;
 
         final cardSales = await _dbService.getCardSales(today, branch.id);
         totalCardSales += cardSales.fold(0.0, (sum, s) => sum + s.amount);
@@ -99,7 +103,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
         final opening = previousClosing?.nextOpening ?? 0.0;
         
         // Calculate: (Cash in Hand - Opening Balance) + Total Cash Expenses
-        final branchCashSales = (countedCash - opening) + branchExpenses;
+        final branchCashSales = (countedCash - opening) + branchCashExpenses;
         totalCashSales += branchCashSales;
 
         final cashClosing = await _dbService.getCashClosing(today, branch.id);
@@ -254,7 +258,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
         const SizedBox(width: 12),
         Expanded(
           child: _buildStatCard(
-            'Total Cash Expenses',
+            'Total Expenses',
             _todayStats?['totalExpenses'] ?? 0.0,
             Icons.trending_down,
             Colors.red,
@@ -315,7 +319,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
             ),
             const SizedBox(height: 16),
             _buildSummaryRow('Sales', _todayStats!['totalSales'] ?? 0.0, Colors.green),
-            _buildSummaryRow('Cash Expenses', _todayStats!['totalExpenses'] ?? 0.0, Colors.red),
+            _buildSummaryRow('Expenses', _todayStats!['totalExpenses'] ?? 0.0, Colors.red),
             const Divider(),
             _buildSummaryRow('Net Profit', _todayStats!['netProfit'] ?? 0.0, 
                 (_todayStats!['netProfit'] ?? 0.0) >= 0 ? Colors.green : Colors.red),

@@ -68,7 +68,7 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
       // Calculate Total Cash Sales: (Cash in Hand - Opening Balance) + Total Cash Expenses
       _totalCashSales = (_countedCash - _opening) + _totalExpenses;
       totalCashSalesController.text = _totalCashSales.toStringAsFixed(2);
-      debugPrint('Total Cash Sales calculated: (${_countedCash} - ${_opening}) + ${_totalExpenses} = ${_totalCashSales}');
+      debugPrint('Total Cash Sales calculated: ($_countedCash - $_opening) + $_totalExpenses = $_totalCashSales');
 
       // Load existing cash closing if available (for withdrawn)
       final existingClosing = await _dbService.getCashClosing(widget.selectedDate, branch.id);
@@ -251,42 +251,6 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
             ),
             const SizedBox(height: 24),
             Card(
-              color: Theme.of(context).colorScheme.primaryContainer,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Calculations',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _buildCalculationRow(
-                      'Expected Cash',
-                      _getExpectedCash(),
-                    ),
-                    const SizedBox(height: 8),
-                    _buildCalculationRow(
-                      'Counted Cash',
-                      _countedCash,
-                    ),
-                    const Divider(),
-                    _buildCalculationRow(
-                      'Discrepancy',
-                      _getDiscrepancy(),
-                      isHighlight: true,
-                      isPositive: _getDiscrepancy() >= 0,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Card(
               color: Theme.of(context).colorScheme.surfaceContainerHighest,
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -397,36 +361,6 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildCalculationRow(
-    String label,
-    double value, {
-    bool isHighlight = false,
-    bool isPositive = true,
-  }) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: isHighlight ? 16 : 14,
-            fontWeight: isHighlight ? FontWeight.bold : FontWeight.normal,
-          ),
-        ),
-        Text(
-          '₹${value.toStringAsFixed(2)}',
-          style: TextStyle(
-            fontSize: isHighlight ? 18 : 14,
-            fontWeight: FontWeight.bold,
-            color: isHighlight
-                ? (isPositive ? Colors.green : Colors.red)
-                : null,
-          ),
-        ),
-      ],
     );
   }
 

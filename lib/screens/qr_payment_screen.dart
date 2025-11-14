@@ -20,7 +20,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
   final AuthService _authService = AuthService();
   bool _isSaving = false;
   bool _isLoading = false;
-  List<String> _existingPaymentIds = []; // Track existing payment IDs
+  final List<String> _existingPaymentIds = []; // Track existing payment IDs
   final List<String> _providers = [
     'Paytm',
     'PhonePe',
@@ -134,28 +134,51 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
     });
 
     try {
+      int savedCount = 0;
+      List<String> errors = [];
+
+      // Delete existing payments for this date to avoid duplicates
+      for (var paymentId in _existingPaymentIds) {
+        try {
+          await _dbService.deleteQrPayment(paymentId);
+          debugPrint('Deleted existing QR payment: $paymentId');
+        } catch (e) {
+          debugPrint('Error deleting existing QR payment: $e');
+        }
+      }
+
+      // Save payments
       for (var paymentRow in _payments) {
         if (paymentRow.amount != null && paymentRow.amount! > 0) {
           if (paymentRow.provider == null || paymentRow.provider!.isEmpty) {
+            errors.add('Payment provider is required');
             continue; // Skip if provider is not selected
           }
 
-          final payment = QrPayment(
-            date: widget.selectedDate,
-            userId: user.id,
-            branchId: branch.id,
-            provider: paymentRow.provider!,
-            amount: paymentRow.amount!,
-            txnId: paymentRow.txnIdController.text.trim().isEmpty
-                ? null
-                : paymentRow.txnIdController.text.trim(),
-            settlementDate: paymentRow.settlementDate,
-            notes: paymentRow.notesController.text.trim().isEmpty
-                ? null
-                : paymentRow.notesController.text.trim(),
-          );
+          try {
+            final payment = QrPayment(
+              date: widget.selectedDate,
+              userId: user.id,
+              branchId: branch.id,
+              provider: paymentRow.provider!,
+              amount: paymentRow.amount!,
+              txnId: paymentRow.txnIdController.text.trim().isEmpty
+                  ? null
+                  : paymentRow.txnIdController.text.trim(),
+              settlementDate: paymentRow.settlementDate,
+              notes: paymentRow.notesController.text.trim().isEmpty
+                  ? null
+                  : paymentRow.notesController.text.trim(),
+            );
 
-          await _dbService.saveQrPayment(payment);
+            debugPrint('Saving QR payment: ${payment.toJson()}');
+            await _dbService.saveQrPayment(payment);
+            savedCount++;
+            debugPrint('QR payment saved successfully');
+          } catch (e) {
+            debugPrint('Error saving QR payment: $e');
+            errors.add('Error: ${e.toString()}');
+          }
         }
       }
 
@@ -163,15 +186,31 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
       await _loadData();
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('QR payments saved successfully')),
-        );
+        if (savedCount > 0) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('$savedCount payment(s) saved successfully${errors.isNotEmpty ? '. ${errors.length} error(s)' : ''}'),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        } else if (errors.isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('No payments saved. Errors: ${errors.join(", ")}'),
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No payments to save. Please add at least one payment with amount and provider')),
+          );
+        }
         // Don't navigate away - let user continue editing if needed
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving QR payments: $e')),
+          SnackBar(content: Text('Error saving UPI payments: $e')),
         );
       }
     } finally {
@@ -188,7 +227,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(
-          title: Text('Paytm / QR - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
+          title: Text('UPI - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
         ),
         body: const Center(child: CircularProgressIndicator()),
       );
@@ -196,7 +235,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Paytm / QR - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
+        title: Text('UPI - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
       ),
       body: Column(
         children: [
@@ -211,7 +250,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                     child: OutlinedButton.icon(
                       onPressed: _addNewPayment,
                       icon: const Icon(Icons.add),
-                      label: const Text('Add QR Payment'),
+                      label: const Text('Add UPI Payment'),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
@@ -240,7 +279,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
-                      'Total QR Payments:',
+                      'Total UPI Payments:',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,

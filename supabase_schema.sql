@@ -56,6 +56,28 @@ CREATE TABLE cash_expenses (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Suppliers
+CREATE TABLE suppliers (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  contact TEXT,
+  address TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Credit expenses
+CREATE TABLE credit_expenses (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  date DATE NOT NULL,
+  user_id UUID REFERENCES users(id),
+  branch_id UUID REFERENCES branches(id) ON DELETE CASCADE,
+  supplier TEXT NOT NULL,
+  category TEXT NOT NULL,
+  amount NUMERIC(12,2) NOT NULL,
+  note TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Cash counts
 CREATE TABLE cash_counts (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -155,6 +177,8 @@ CREATE TABLE cash_closings (
 -- Create indexes for performance
 CREATE INDEX idx_cash_expenses_date ON cash_expenses(date);
 CREATE INDEX idx_cash_expenses_branch ON cash_expenses(branch_id);
+CREATE INDEX idx_credit_expenses_date ON credit_expenses(date);
+CREATE INDEX idx_credit_expenses_branch ON credit_expenses(branch_id);
 CREATE INDEX idx_cash_counts_date ON cash_counts(date);
 CREATE INDEX idx_cash_counts_branch ON cash_counts(branch_id);
 CREATE INDEX idx_card_sales_date ON card_sales(date);
