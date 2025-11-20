@@ -5,6 +5,7 @@ import '../models/card_sale.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import 'card_machine_management_screen.dart';
+import '../utils/app_colors.dart';
 
 class CardScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -30,6 +31,19 @@ class _CardScreenState extends State<CardScreen> {
     _loadData();
   }
 
+  String _machineKey(CardMachine machine) => machine.id ?? '${machine.tid}__${machine.name}';
+
+  String _machineLabel(CardMachine machine) => '${machine.name} (${machine.tid})';
+
+  CardMachine? _findMachineByKey(String? key) {
+    if (key == null) return null;
+    try {
+      return _machines.firstWhere((m) => _machineKey(m) == key);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _loadData() async {
     setState(() {
       _isLoading = true;
@@ -38,10 +52,11 @@ class _CardScreenState extends State<CardScreen> {
     try {
       final branch = _authService.currentBranch;
       if (branch == null) {
-        setState(() {
-          _isLoading = false;
-        });
-        _addNewSale();
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
         return;
       }
 
@@ -51,50 +66,85 @@ class _CardScreenState extends State<CardScreen> {
       // Load sales for the date
       final sales = await _dbService.getCardSales(widget.selectedDate, branch.id);
       
+      final Map<String, CardMachine> machineMap = {
+        for (final machine in machines) _machineKey(machine): machine,
+      };
+
       setState(() {
         _sales.clear();
         _existingSaleIds.clear();
-        _machines.clear();
-        
-        // Add machines from backend
-        _machines.addAll(machines);
-        
-        if (sales.isNotEmpty) {
-          for (var sale in sales) {
-            final row = CardSaleRow();
-            row.amountController.text = sale.amount.toStringAsFixed(2);
-            row.amount = sale.amount;
-            if (sale.txnCount != null) {
-              row.txnCountController.text = sale.txnCount.toString();
-            }
-            if (sale.notes != null) {
-              row.notesController.text = sale.notes!;
-            }
-            
-            // Find matching machine
-            final machine = _machines.firstWhere(
-              (m) => m.tid == sale.tid && m.name == sale.machineName,
-              orElse: () => CardMachine(name: sale.machineName, tid: sale.tid),
-            );
-            if (!_machines.contains(machine)) {
-              _machines.add(machine);
-            }
-            
-            // Set machine selection
-            row.selectedMachineId = machine.id ?? '${machine.tid}_${machine.name}';
-            
-            _sales.add(row);
-            if (sale.id != null) {
-              _existingSaleIds.add(sale.id!);
-            }
+        _machines
+          ..clear()
+          ..addAll(machines);
+
+        final Set<String> machinesWithEntries = {};
+
+        for (var sale in sales) {
+          final row = CardSaleRow();
+          row.amountController.text = sale.amount.toStringAsFixed(2);
+          row.amount = sale.amount;
+          if (sale.txnCount != null) {
+            row.txnCountController.text = sale.txnCount.toString();
           }
-        } else {
-          _addNewSale();
+          if (sale.notes != null) {
+            row.notesController.text = sale.notes!;
+          }
+
+          CardMachine? machine;
+          String? machineKey;
+          try {
+            machine = _machines.firstWhere(
+              (m) => m.tid == sale.tid && m.name == sale.machineName,
+            );
+            machineKey = _machineKey(machine);
+            machinesWithEntries.add(machineKey);
+          } catch (_) {
+            machineKey = sale.machineName == 'Others' ? 'others' : null;
+          }
+
+          if (machineKey == null) {
+            row.selectedMachineId = 'others';
+            row.isMachineLocked = true;
+            row.machineLabel = '${sale.machineName} (${sale.tid})';
+          } else if (machineKey == 'others') {
+            row.selectedMachineId = 'others';
+            row.isMachineLocked = true;
+            row.machineLabel = 'Others';
+          } else {
+            row.selectedMachineId = machineKey;
+            row.isMachineLocked = true;
+            final labelMachine = machine ?? machineMap[machineKey];
+            row.machineLabel =
+                labelMachine != null ? _machineLabel(labelMachine) : sale.machineName;
+          }
+
+          _sales.add(row);
+          if (sale.id != null) {
+            _existingSaleIds.add(sale.id!);
+          }
+        }
+
+        for (final machine in _machines) {
+          final key = _machineKey(machine);
+          if (machinesWithEntries.contains(key)) continue;
+          if (_sales.any((row) => row.selectedMachineId == key)) continue;
+          final row = CardSaleRow()
+            ..selectedMachineId = key
+            ..isMachineLocked = true
+            ..machineLabel = _machineLabel(machine);
+          _sales.add(row);
+        }
+
+        if (_sales.isEmpty) {
+          _sales.add(CardSaleRow());
         }
       });
     } catch (e) {
       debugPrint('Error loading card sales: $e');
-      _addNewSale();
+      setState(() {
+        _sales.clear();
+        _sales.add(CardSaleRow());
+      });
     } finally {
       setState(() {
         _isLoading = false;
@@ -155,34 +205,13 @@ class _CardScreenState extends State<CardScreen> {
         if (saleRow.amount != null && saleRow.amount! > 0) {
           // Find the machine
           CardMachine? machine;
-          if (saleRow.selectedMachineId != null) {
-            // Try to find by ID first
-            try {
-              machine = _machines.firstWhere(
-                (m) => m.id == saleRow.selectedMachineId,
-              );
-            } catch (e) {
-              // If not found by ID, try to parse the key format: "tid_name"
-              final parts = saleRow.selectedMachineId!.split('_');
-              if (parts.length >= 2) {
-                final tid = parts[0];
-                final name = parts.sublist(1).join('_');
-                try {
-                  machine = _machines.firstWhere(
-                    (m) => m.tid == tid && m.name == name,
-                  );
-                } catch (e) {
-                  machine = _machines.isNotEmpty ? _machines.first : CardMachine(name: 'Unknown', tid: 'N/A');
-                }
-              } else {
-                machine = _machines.isNotEmpty ? _machines.first : CardMachine(name: 'Unknown', tid: 'N/A');
-              }
-            }
-          } else if (_machines.isNotEmpty) {
-            machine = _machines.first;
+          if (saleRow.selectedMachineId == 'others' || saleRow.selectedMachineId == null) {
+            machine = CardMachine(name: 'Others', tid: 'Others');
           } else {
-            // Create a default machine entry if none exists
-            machine = CardMachine(name: 'Default', tid: 'N/A');
+            machine = _findMachineByKey(saleRow.selectedMachineId);
+            machine ??= _machines.isNotEmpty
+                ? _machines.first
+                : CardMachine(name: 'Unknown', tid: 'N/A');
           }
 
           final sale = CardSale(
@@ -245,7 +274,7 @@ class _CardScreenState extends State<CardScreen> {
         actions: [
           if (_authService.canManageUsers())
             IconButton(
-              icon: const Icon(Icons.settings),
+              icon: const Icon(Icons.credit_card),
               onPressed: () {
                 Navigator.push(
                   context,
@@ -291,7 +320,7 @@ class _CardScreenState extends State<CardScreen> {
               color: Theme.of(context).colorScheme.surface,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.1),
+                  color: AppColors.overlay,
                   blurRadius: 4,
                   offset: const Offset(0, -2),
                 ),
@@ -356,38 +385,47 @@ class _CardScreenState extends State<CardScreen> {
             Row(
               children: [
                 Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: sale.selectedMachineId,
-                    decoration: const InputDecoration(
-                      labelText: 'Machine',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    items: _machines.isEmpty
-                        ? [
+                  child: sale.isMachineLocked
+                      ? InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Machine',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          child: Text(sale.machineLabel ?? 'Machine'),
+                        )
+                      : DropdownButtonFormField<String>(
+                          initialValue: sale.selectedMachineId,
+                          decoration: const InputDecoration(
+                            labelText: 'Machine',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          items: [
                             const DropdownMenuItem(
-                              value: null,
-                              child: Text('No machines added'),
-                            )
-                          ]
-                        : _machines.map((machine) {
-                            final machineKey = machine.id ?? '${machine.tid}_${machine.name}';
-                            return DropdownMenuItem(
-                              value: machineKey,
-                              child: Text('${machine.name} (${machine.tid})'),
-                            );
-                          }).toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        sale.selectedMachineId = value;
-                      });
-                    },
+                              value: 'others',
+                              child: Text('Others'),
+                            ),
+                            ..._machines.map((machine) {
+                              final machineKey = _machineKey(machine);
+                              return DropdownMenuItem(
+                                value: machineKey,
+                                child: Text(_machineLabel(machine)),
+                              );
+                            }),
+                          ],
+                          onChanged: (value) {
+                            setState(() {
+                              sale.selectedMachineId = value;
+                            });
+                          },
+                        ),
+                ),
+                if (!sale.isMachineLocked)
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, color: AppColors.error),
+                    onPressed: () => _removeSale(index),
                   ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
-                  onPressed: () => _removeSale(index),
-                ),
               ],
             ),
             const SizedBox(height: 8),
@@ -453,6 +491,8 @@ class CardSaleRow {
   final TextEditingController notesController = TextEditingController();
   String? selectedMachineId;
   double? amount;
+  bool isMachineLocked = false;
+  String? machineLabel;
 
   CardSaleRow();
 

@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
 import '../models/branch.dart';
 import '../models/due.dart';
-import '../models/user.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import 'owner_dashboard_screen.dart';
-import 'user_management_screen.dart';
 import 'home_screen.dart';
 import 'add_branch_screen.dart';
-import 'login_screen.dart';
-import 'profile_screen.dart';
+import 'settings_screen.dart';
+import 'supplier_management_screen.dart';
+import '../utils/app_colors.dart';
 
 class DashboardHomeScreen extends StatefulWidget {
   const DashboardHomeScreen({super.key});
@@ -166,46 +165,30 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
               },
               tooltip: 'Analytics Dashboard',
             ),
-          PopupMenuButton(
-            icon: const Icon(Icons.more_vert),
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                child: const Row(
-                  children: [
-                    Icon(Icons.person, size: 20),
-                    SizedBox(width: 8),
-                    Text('Profile'),
-                  ],
+          if (isBusinessOwner)
+            IconButton(
+              icon: const Icon(Icons.store_mall_directory),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SupplierManagementScreen(),
+                  ),
+                );
+              },
+              tooltip: 'Suppliers',
+            ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const SettingsScreen(),
                 ),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const ProfileScreen(),
-                    ),
-                  );
-                },
-              ),
-              PopupMenuItem(
-                child: const Row(
-                  children: [
-                    Icon(Icons.logout, size: 20, color: Colors.red),
-                    SizedBox(width: 8),
-                    Text('Logout', style: TextStyle(color: Colors.red)),
-                  ],
-                ),
-                onTap: () async {
-                  await _authService.logout();
-                  if (context.mounted) {
-                    Navigator.of(context).pushReplacement(
-                      MaterialPageRoute(
-                        builder: (context) => const LoginScreen(),
-                      ),
-                    );
-                  }
-                },
-              ),
-            ],
+              );
+            },
+            tooltip: 'Settings',
           ),
         ],
       ),
@@ -222,16 +205,6 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
                     // Branch Management - Show for all users, but with different options
                     _buildBranchManagement(branches, isBusinessOwner),
                     const SizedBox(height: 16),
-
-                    // People & Access - Show for business owners
-                    if (isBusinessOwner) ...[
-                      _buildPeopleAccess(),
-                      const SizedBox(height: 16),
-                    ] else ...[
-                      // Show limited access info for non-owners
-                      _buildAccessInfo(),
-                      const SizedBox(height: 16),
-                    ],
 
                     // Quick Stats
                     _buildQuickStats(),
@@ -256,7 +229,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
             'Total Sales',
             _todayStats?['totalSales'] ?? 0.0,
             Icons.trending_up,
-            Colors.green,
+            AppColors.success,
           ),
         ),
         const SizedBox(width: 12),
@@ -265,7 +238,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
             'Total Expenses',
             _todayStats?['totalExpenses'] ?? 0.0,
             Icons.trending_down,
-            Colors.red,
+            AppColors.error,
           ),
         ),
       ],
@@ -298,7 +271,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
               title,
               style: TextStyle(
                 fontSize: 12,
-                color: Colors.grey[400],
+                color: AppColors.textSecondary,
               ),
             ),
           ],
@@ -322,14 +295,14 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            _buildSummaryRow('Sales', _todayStats!['totalSales'] ?? 0.0, Colors.green),
-            _buildSummaryRow('Expenses', _todayStats!['totalExpenses'] ?? 0.0, Colors.red),
+            _buildSummaryRow('Sales', _todayStats!['totalSales'] ?? 0.0, AppColors.success),
+            _buildSummaryRow('Expenses', _todayStats!['totalExpenses'] ?? 0.0, AppColors.error),
             const Divider(),
             _buildSummaryRow('Net Profit', _todayStats!['netProfit'] ?? 0.0, 
-                (_todayStats!['netProfit'] ?? 0.0) >= 0 ? Colors.green : Colors.red),
+                (_todayStats!['netProfit'] ?? 0.0) >= 0 ? AppColors.success : AppColors.error),
             const SizedBox(height: 8),
-            _buildSummaryRow('Receivables', _todayStats!['totalReceivables'] ?? 0.0, Colors.orange),
-            _buildSummaryRow('Payables', _todayStats!['totalPayables'] ?? 0.0, Colors.purple),
+            _buildSummaryRow('Receivables', _todayStats!['totalReceivables'] ?? 0.0, AppColors.warning),
+            _buildSummaryRow('Payables', _todayStats!['totalPayables'] ?? 0.0, AppColors.primary),
           ],
         ),
       ),
@@ -374,10 +347,10 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: Colors.blue.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(Icons.business, color: Colors.blue, size: 24),
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.business, color: AppColors.primary, size: 24),
                     ),
                     const SizedBox(width: 12),
                     const Text(
@@ -418,7 +391,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
                 child: Center(
                   child: Text(
                     'No branches yet. Add your first branch!',
-                    style: TextStyle(color: Colors.grey),
+                    style: TextStyle(color: AppColors.textTertiary),
                   ),
                 ),
               )
@@ -439,7 +412,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
                     },
                     borderRadius: BorderRadius.circular(12),
                     child: ListTile(
-                      leading: const Icon(Icons.store, color: Colors.blue),
+                      leading: const Icon(Icons.store, color: AppColors.primary),
                       title: Text(
                         branch.name,
                         style: const TextStyle(fontWeight: FontWeight.w600),
@@ -452,8 +425,8 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
                               color: branch.status == BranchStatus.active
-                                  ? Colors.green.withValues(alpha: 0.2)
-                                  : Colors.grey.withValues(alpha: 0.2),
+                                  ? AppColors.success.withValues(alpha: 0.2)
+                                  : AppColors.textTertiary.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
@@ -462,13 +435,13 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
                                 fontSize: 10,
                                 fontWeight: FontWeight.w600,
                                 color: branch.status == BranchStatus.active
-                                    ? Colors.green
-                                    : Colors.grey,
+                                    ? AppColors.success
+                                    : AppColors.textTertiary,
                               ),
                             ),
                           ),
                           const SizedBox(width: 8),
-                          const Icon(Icons.chevron_right, color: Colors.grey),
+                          const Icon(Icons.chevron_right, color: AppColors.textTertiary),
                         ],
                       ),
                     ),
@@ -480,219 +453,5 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
     );
   }
 
-  Widget _buildPeopleAccess() {
-    return Card(
-      child: InkWell(
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const UserManagementScreen(),
-            ),
-          );
-        },
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.purple.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(Icons.people, color: Colors.purple, size: 24),
-                      ),
-                      const SizedBox(width: 12),
-                      const Text(
-                        'People & Access',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const Icon(Icons.chevron_right, color: Colors.grey),
-                ],
-              ),
-              const SizedBox(height: 12),
-              const Row(
-                children: [
-                  Icon(Icons.security, size: 18, color: Colors.grey),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Manage Users & Permissions',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          'Add users, assign roles, and control branch access',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAccessInfo() {
-    final branchUsers = _authService.branchUsers;
-    final userBranches = _authService.userBranches;
-    
-    // Get all roles across all branches
-    final List<Map<String, String>> branchRoleList = [];
-    for (var bu in branchUsers) {
-      final branch = userBranches.firstWhere(
-        (b) => b.id == bu.branchId,
-        orElse: () => userBranches.isNotEmpty ? userBranches.first : Branch(
-          id: bu.branchId,
-          name: 'Unknown',
-          location: '',
-          businessId: '',
-          status: BranchStatus.active,
-        ),
-      );
-      branchRoleList.add({
-        'name': branch.name,
-        'location': branch.location,
-        'role': bu.role.toString().split('.').last.toUpperCase(),
-      });
-    }
-    
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.info_outline, color: Colors.orange, size: 24),
-                ),
-                const SizedBox(width: 12),
-                const Text(
-                  'Your Access',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            // Show all roles across branches in the requested format
-            ...branchRoleList.map((br) {
-              final roleName = br['role']!;
-              final role = roleName == 'OWNER' 
-                  ? UserRole.owner 
-                  : roleName == 'MANAGER' 
-                      ? UserRole.manager 
-                      : UserRole.staff;
-              
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          role == UserRole.owner
-                              ? Icons.admin_panel_settings
-                              : role == UserRole.manager
-                                  ? Icons.manage_accounts
-                                  : Icons.person,
-                          color: role == UserRole.owner
-                              ? Colors.blue
-                              : role == UserRole.manager
-                                  ? Colors.orange
-                                  : Colors.grey,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Branch: ${br['name']}',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Padding(
-                      padding: const EdgeInsets.only(left: 28),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Location: ${br['location']}',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey[400],
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Role: $roleName',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey[400],
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            role == UserRole.owner
-                                ? 'Access: Full access - Edit any date, manage users & branches'
-                                : role == UserRole.manager
-                                    ? 'Access: Can edit today and yesterday\'s data'
-                                    : 'Access: Can only edit today\'s data',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey[400],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }),
-          ],
-        ),
-      ),
-    );
-  }
 }
 

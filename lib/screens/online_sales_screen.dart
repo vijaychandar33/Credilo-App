@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/app_colors.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../models/online_sale.dart';
@@ -237,7 +238,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
               color: Theme.of(context).colorScheme.surface,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.1),
+                  color: AppColors.overlay,
                   blurRadius: 4,
                   offset: const Offset(0, -2),
                 ),
@@ -320,7 +321,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  icon: const Icon(Icons.delete_outline, color: AppColors.error),
                   onPressed: () => _removeSale(index),
                 ),
               ],

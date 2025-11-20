@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/app_colors.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../models/qr_payment.dart';
@@ -267,7 +268,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
               color: Theme.of(context).colorScheme.surface,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.1),
+                  color: AppColors.overlay,
                   blurRadius: 4,
                   offset: const Offset(0, -2),
                 ),
@@ -350,7 +351,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  icon: const Icon(Icons.delete_outline, color: AppColors.error),
                   onPressed: () => _removePayment(index),
                 ),
               ],

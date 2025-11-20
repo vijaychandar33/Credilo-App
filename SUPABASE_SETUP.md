@@ -45,7 +45,6 @@ CREATE TABLE users (
 CREATE TABLE businesses (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name TEXT NOT NULL,
-  owner_id UUID REFERENCES users(id),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -55,7 +54,6 @@ CREATE TABLE branches (
   business_id UUID REFERENCES businesses(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   location TEXT NOT NULL,
-  manager_id UUID REFERENCES users(id),
   status TEXT DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -81,6 +79,30 @@ CREATE TABLE cash_expenses (
   category TEXT NOT NULL,
   amount NUMERIC(12,2) NOT NULL,
   note TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Suppliers
+CREATE TABLE suppliers (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  business_id UUID REFERENCES businesses(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  contact TEXT,
+  address TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Credit expenses
+CREATE TABLE credit_expenses (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  date DATE NOT NULL,
+  user_id UUID REFERENCES users(id),
+  branch_id UUID REFERENCES branches(id) ON DELETE CASCADE,
+  supplier TEXT NOT NULL,
+  category TEXT NOT NULL,
+  amount NUMERIC(12,2) NOT NULL,
+  note TEXT,
+  status TEXT DEFAULT 'unpaid' CHECK (status IN ('paid', 'unpaid')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -113,6 +135,7 @@ CREATE TABLE card_sales (
 -- Card machines
 CREATE TABLE card_machines (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  branch_id UUID REFERENCES branches(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   tid TEXT NOT NULL,
   location TEXT,
@@ -183,10 +206,13 @@ CREATE TABLE cash_closings (
 -- Create indexes for performance
 CREATE INDEX idx_cash_expenses_date ON cash_expenses(date);
 CREATE INDEX idx_cash_expenses_branch ON cash_expenses(branch_id);
+CREATE INDEX idx_credit_expenses_date ON credit_expenses(date);
+CREATE INDEX idx_credit_expenses_branch ON credit_expenses(branch_id);
 CREATE INDEX idx_cash_counts_date ON cash_counts(date);
 CREATE INDEX idx_cash_counts_branch ON cash_counts(branch_id);
 CREATE INDEX idx_card_sales_date ON card_sales(date);
 CREATE INDEX idx_card_sales_branch ON card_sales(branch_id);
+CREATE INDEX idx_card_machines_branch ON card_machines(branch_id);
 CREATE INDEX idx_online_sales_date ON online_sales(date);
 CREATE INDEX idx_online_sales_branch ON online_sales(branch_id);
 CREATE INDEX idx_qr_payments_date ON qr_payments(date);
@@ -195,103 +221,12 @@ CREATE INDEX idx_dues_date ON dues(date);
 CREATE INDEX idx_dues_branch ON dues(branch_id);
 CREATE INDEX idx_cash_closings_date ON cash_closings(date);
 CREATE INDEX idx_cash_closings_branch ON cash_closings(branch_id);
+CREATE INDEX idx_suppliers_business ON suppliers(business_id);
 ```
 
 ## Step 5: Enable Row Level Security (RLS)
 
-Run this in SQL Editor to enable RLS and create policies:
-
-```sql
--- Enable RLS on all tables
-ALTER TABLE cash_expenses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cash_counts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE card_sales ENABLE ROW LEVEL SECURITY;
-ALTER TABLE online_sales ENABLE ROW LEVEL SECURITY;
-ALTER TABLE qr_payments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dues ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cash_closings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE branches ENABLE ROW LEVEL SECURITY;
-ALTER TABLE branch_users ENABLE ROW LEVEL SECURITY;
-
--- Policy: Users can only access data from their assigned branches
-CREATE POLICY branch_user_access ON cash_expenses
-  FOR ALL
-  USING (
-    branch_id IN (
-      SELECT branch_id FROM branch_users 
-      WHERE user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY branch_user_access ON cash_counts
-  FOR ALL
-  USING (
-    branch_id IN (
-      SELECT branch_id FROM branch_users 
-      WHERE user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY branch_user_access ON card_sales
-  FOR ALL
-  USING (
-    branch_id IN (
-      SELECT branch_id FROM branch_users 
-      WHERE user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY branch_user_access ON online_sales
-  FOR ALL
-  USING (
-    branch_id IN (
-      SELECT branch_id FROM branch_users 
-      WHERE user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY branch_user_access ON qr_payments
-  FOR ALL
-  USING (
-    branch_id IN (
-      SELECT branch_id FROM branch_users 
-      WHERE user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY branch_user_access ON dues
-  FOR ALL
-  USING (
-    branch_id IN (
-      SELECT branch_id FROM branch_users 
-      WHERE user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY branch_user_access ON cash_closings
-  FOR ALL
-  USING (
-    branch_id IN (
-      SELECT branch_id FROM branch_users 
-      WHERE user_id = auth.uid()
-    )
-  );
-
--- Policy: Users can view their assigned branches
-CREATE POLICY branch_access ON branches
-  FOR SELECT
-  USING (
-    id IN (
-      SELECT branch_id FROM branch_users 
-      WHERE user_id = auth.uid()
-    )
-  );
-
--- Policy: Users can view their branch assignments
-CREATE POLICY branch_user_view ON branch_users
-  FOR SELECT
-  USING (user_id = auth.uid());
-```
+RLS policies should be configured based on your security requirements. The schema above creates the tables, but you'll need to set up RLS policies separately based on your access control needs.
 
 ## Step 6: Enable Phone Authentication
 

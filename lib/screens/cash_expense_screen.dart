@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/app_colors.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../models/cash_expense.dart';
@@ -20,6 +21,7 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
   final AuthService _authService = AuthService();
   bool _isSaving = false;
   bool _isLoading = false;
+  bool _showValidationErrors = false;
   final List<String> _existingExpenseIds = []; // Track existing expense IDs
   final List<String> _categories = [
     'Supplies',
@@ -112,6 +114,31 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
         const SnackBar(content: Text('Please add at least one expense with amount')),
       );
       return;
+    }
+
+    bool hasValidationErrors = false;
+    for (var expenseRow in _expenses) {
+      if (expenseRow.amount != null && expenseRow.amount! > 0) {
+        final missingItem = expenseRow.itemController.text.trim().isEmpty;
+        final missingCategory = expenseRow.category == null;
+        if (missingItem || missingCategory) {
+          hasValidationErrors = true;
+        }
+      }
+    }
+
+    if (hasValidationErrors) {
+      setState(() {
+        _showValidationErrors = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Fill all required fields to save')),
+      );
+      return;
+    } else if (_showValidationErrors) {
+      setState(() {
+        _showValidationErrors = false;
+      });
     }
 
     final user = _authService.currentUser;
@@ -233,7 +260,7 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
               color: Theme.of(context).colorScheme.surface,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.1),
+                  color: AppColors.overlay,
                   blurRadius: 4,
                   offset: const Offset(0, -2),
                 ),
@@ -288,6 +315,11 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
 
   Widget _buildExpenseRow(int index) {
     final expense = _expenses[index];
+    final requiresFields = expense.amount != null && expense.amount! > 0;
+    final showItemError = _showValidationErrors &&
+        requiresFields &&
+        expense.itemController.text.trim().isEmpty;
+    final showCategoryError = _showValidationErrors && requiresFields && expense.category == null;
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -300,15 +332,16 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
                 Expanded(
                   child: TextField(
                     controller: expense.itemController,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Item / Description',
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
                       isDense: true,
+                      errorText: showItemError ? 'Enter item' : null,
                     ),
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  icon: const Icon(Icons.delete_outline, color: AppColors.error),
                   onPressed: () => _removeRow(index),
                 ),
               ],
@@ -320,10 +353,11 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
                   flex: 2,
                   child: DropdownButtonFormField<String>(
                     initialValue: expense.category,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Category',
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
                       isDense: true,
+                      errorText: showCategoryError ? 'Select category' : null,
                     ),
                     items: _categories.map((cat) {
                       return DropdownMenuItem(value: cat, child: Text(cat));

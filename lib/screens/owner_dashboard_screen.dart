@@ -4,22 +4,8 @@ import '../models/branch.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../models/due.dart';
-
-enum DateRangeOption {
-  today,
-  yesterday,
-  last7Days,
-  last2Weeks,
-  lastMonth,
-  custom,
-}
-
-class _DateRange {
-  final DateTime startDate;
-  final DateTime endDate;
-
-  _DateRange({required this.startDate, required this.endDate});
-}
+import '../utils/app_colors.dart';
+import '../utils/date_range_utils.dart';
 
 class OwnerDashboardScreen extends StatefulWidget {
   const OwnerDashboardScreen({super.key});
@@ -34,7 +20,8 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
   DateTime? _selectedStartDate;
   DateTime? _selectedEndDate;
   DateRangeOption _selectedRangeOption = DateRangeOption.today;
-  Branch? _selectedBranch;
+  List<Branch> _availableBranches = [];
+  Set<String> _selectedBranchIds = {};
   final DatabaseService _dbService = DatabaseService();
   final AuthService _authService = AuthService();
   bool _isLoading = false;
@@ -45,7 +32,164 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _availableBranches = _authService.ownerBranches;
+    if (_availableBranches.isNotEmpty) {
+      _selectedBranchIds = _availableBranches.map((b) => b.id).toSet();
+    }
     _loadDashboardData();
+  }
+
+  List<Branch> _getSelectedBranches() {
+    if (_selectedBranchIds.isNotEmpty && _availableBranches.isNotEmpty) {
+      return _availableBranches
+          .where((b) => _selectedBranchIds.contains(b.id))
+          .toList();
+    }
+    final ownerBranches = _authService.ownerBranches;
+    if (ownerBranches.isNotEmpty) {
+        _selectedBranchIds = ownerBranches.map((b) => b.id).toSet();
+        return ownerBranches;
+    }
+    return [];
+  }
+
+  Future<void> _showBranchSelectionSheet() async {
+    final branches = _authService.ownerBranches;
+    if (branches.isEmpty) return;
+
+    final currentSelection =
+        _selectedBranchIds.isEmpty ? branches.map((b) => b.id).toSet() : _selectedBranchIds;
+
+    final result = await showModalBottomSheet<Set<String>>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        Set<String> tempSelection = Set<String>.from(currentSelection);
+        return SafeArea(
+          child: SizedBox(
+            height: MediaQuery.of(context).size.height * 0.6,
+            child: StatefulBuilder(
+              builder: (context, setModalState) {
+                bool allSelected = tempSelection.length == branches.length;
+                return Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Select Branches',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              setModalState(() {
+                                tempSelection = branches.map((b) => b.id).toSet();
+                              });
+                            },
+                            child: const Text('Select All'),
+                          ),
+                        ],
+                      ),
+                      Expanded(
+                        child: ListView(
+                          children: [
+                            CheckboxListTile(
+                              title: const Text('All Branches'),
+                              value: allSelected,
+                              onChanged: (value) {
+                                setModalState(() {
+                                  if (value == true) {
+                                    tempSelection = branches.map((b) => b.id).toSet();
+                                  } else {
+                                    tempSelection.clear();
+                                  }
+                                });
+                              },
+                            ),
+                            const Divider(),
+                            ...branches.map(
+                              (branch) => CheckboxListTile(
+                                title: Text(branch.name),
+                                subtitle:
+                                    branch.location.isNotEmpty ? Text(branch.location) : null,
+                                value: tempSelection.contains(branch.id),
+                                onChanged: (value) {
+                                  setModalState(() {
+                                    if (value == true) {
+                                      tempSelection.add(branch.id);
+                                    } else {
+                                      tempSelection.remove(branch.id);
+                                    }
+                                  });
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () {
+                                setModalState(() {
+                                  tempSelection = branches.map((b) => b.id).toSet();
+                                });
+                              },
+                              child: const Text('Reset'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () {
+                                if (tempSelection.isEmpty) {
+                                  tempSelection = branches.map((b) => b.id).toSet();
+                                }
+                                Navigator.pop(context, tempSelection);
+                              },
+                              child: const Text('Apply'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+
+    if (result != null) {
+      setState(() {
+        _availableBranches = branches;
+        _selectedBranchIds = result;
+      });
+      _loadDashboardData();
+    }
+  }
+
+  String _branchFilterLabel() {
+    if (_availableBranches.isEmpty) return 'No branches';
+    if (_selectedBranchIds.isEmpty ||
+        _selectedBranchIds.length == _availableBranches.length) {
+      return 'All Branches';
+    }
+    if (_selectedBranchIds.length == 1) {
+      final branch = _availableBranches.firstWhere(
+        (b) => _selectedBranchIds.contains(b.id),
+        orElse: () => _availableBranches.first,
+      );
+      return branch.name;
+    }
+    return '${_selectedBranchIds.length} selected';
   }
 
   Future<void> _loadDashboardData() async {
@@ -65,58 +209,31 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
     }
   }
 
-  _DateRange _getDateRange() {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    
-    switch (_selectedRangeOption) {
-      case DateRangeOption.today:
-        return _DateRange(startDate: today, endDate: today);
-      case DateRangeOption.yesterday:
-        final yesterday = today.subtract(const Duration(days: 1));
-        return _DateRange(startDate: yesterday, endDate: yesterday);
-      case DateRangeOption.last7Days:
-        return _DateRange(
-          startDate: today.subtract(const Duration(days: 6)),
-          endDate: today,
-        );
-      case DateRangeOption.last2Weeks:
-        return _DateRange(
-          startDate: today.subtract(const Duration(days: 13)),
-          endDate: today,
-        );
-      case DateRangeOption.lastMonth:
-        return _DateRange(
-          startDate: today.subtract(const Duration(days: 29)),
-          endDate: today,
-        );
-      case DateRangeOption.custom:
-        if (_selectedStartDate != null && _selectedEndDate != null) {
-          return _DateRange(
-            startDate: _selectedStartDate!,
-            endDate: _selectedEndDate!,
-          );
-        }
-        return _DateRange(startDate: today, endDate: today);
-    }
+  DateRangeSelection _getDateRange() {
+    return resolveDateRange(
+      _selectedRangeOption,
+      customStartDate: _selectedStartDate,
+      customEndDate: _selectedEndDate,
+    );
   }
 
   Future<void> _loadOverviewData() async {
     try {
-      // Only show branches where user is an owner
-      final ownerBranches = _authService.ownerBranches;
-      final branches = _selectedBranch != null 
-          ? [_selectedBranch!]
-          : ownerBranches;
+      _availableBranches = _authService.ownerBranches;
+      if (_selectedBranchIds.isEmpty && _availableBranches.isNotEmpty) {
+        _selectedBranchIds = _availableBranches.map((b) => b.id).toSet();
+      }
+      final branches = _getSelectedBranches();
 
       if (branches.isEmpty) {
         setState(() {
           _overviewData = {
             'totalSales': 0.0,
             'totalCashSales': 0.0,
+            'totalCardSales': 0.0,
+            'totalOnlineSales': 0.0,
             'totalExpenses': 0.0,
             'totalCreditExpenses': 0.0,
-            'totalCardOnlineSales': 0.0,
             'totalQrPayments': 0.0,
             'totalDues': 0.0,
             'totalReceivables': 0.0,
@@ -193,9 +310,8 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
         }
       }
 
-      final totalCardOnline = totalCardSales + totalOnlineSales;
-      // Total Sales = Cash Sales + Card/Online Sales + QR Payments + Receivables
-      final totalSales = totalCashSales + totalCardOnline + totalQrPayments + totalReceivables;
+      // Total Sales = Cash Sales + Card Sales + Online Sales + QR Payments + Receivables
+      final totalSales = totalCashSales + totalCardSales + totalOnlineSales + totalQrPayments + totalReceivables;
       // Total Due Amounts = Receivables - Payables
       final totalDues = totalReceivables - totalPayables;
       
@@ -203,9 +319,10 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
         _overviewData = {
           'totalSales': totalSales,
           'totalCashSales': totalCashSales,
+          'totalCardSales': totalCardSales,
+          'totalOnlineSales': totalOnlineSales,
           'totalExpenses': totalExpenses,
           'totalCreditExpenses': totalCreditExpenses,
-          'totalCardOnlineSales': totalCardOnline,
           'totalQrPayments': totalQrPayments,
           'totalDues': totalDues,
           'totalReceivables': totalReceivables,
@@ -220,38 +337,32 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
 
   Future<void> _loadDuesData() async {
     try {
-      String? branchId = _selectedBranch?.id;
+      _availableBranches = _authService.ownerBranches;
+      if (_selectedBranchIds.isEmpty && _availableBranches.isNotEmpty) {
+        _selectedBranchIds = _availableBranches.map((b) => b.id).toSet();
+      }
+      final branchList = _getSelectedBranches();
+      if (branchList.isEmpty) {
+        setState(() {
+          _duesData = [];
+        });
+        return;
+      }
       final dateRange = _getDateRange();
       
-      // If no branch selected, get dues from all owner branches
-      if (branchId == null) {
-        final branches = _authService.ownerBranches;
-        List<Due> allDues = [];
-        for (var branch in branches) {
-          DateTime currentDate = dateRange.startDate;
-          while (currentDate.isBefore(dateRange.endDate) || 
-                 currentDate.isAtSameMomentAs(dateRange.endDate)) {
-            final branchDues = await _dbService.getDues(currentDate, branch.id);
-            allDues.addAll(branchDues);
-            currentDate = currentDate.add(const Duration(days: 1));
-          }
-        }
-        setState(() {
-          _duesData = allDues;
-        });
-      } else {
-        List<Due> allDues = [];
+      List<Due> allDues = [];
+      for (var branch in branchList) {
         DateTime currentDate = dateRange.startDate;
         while (currentDate.isBefore(dateRange.endDate) || 
                currentDate.isAtSameMomentAs(dateRange.endDate)) {
-          final dues = await _dbService.getDues(currentDate, branchId);
+          final dues = await _dbService.getDues(currentDate, branch.id);
           allDues.addAll(dues);
           currentDate = currentDate.add(const Duration(days: 1));
         }
-        setState(() {
-          _duesData = allDues;
-        });
       }
+      setState(() {
+        _duesData = allDues;
+      });
     } catch (e) {
       // Error loading dues data
     }
@@ -259,9 +370,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
 
   @override
   Widget build(BuildContext context) {
-    final authService = AuthService();
-    // Only show branches where user is an owner
-    final branches = authService.ownerBranches;
+    final branchLabel = _branchFilterLabel();
 
     return Scaffold(
       appBar: AppBar(
@@ -282,53 +391,32 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
               children: [
                 Expanded(
                   flex: 2,
-                  child: DropdownButtonFormField<Branch?>(
-                    initialValue: _selectedBranch,
-                    decoration: const InputDecoration(
-                      labelText: 'Filter by Branch',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    ),
-                    isExpanded: true,
-                    items: [
-                      const DropdownMenuItem<Branch?>(
-                        value: null,
-                        child: Text(
-                          'All Branches',
-                          overflow: TextOverflow.ellipsis,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _availableBranches.isEmpty ? null : _showBranchSelectionSheet,
+                    child: InputDecorator(
+                      decoration: InputDecoration(
+                        labelText: 'Branches',
+                        border: const OutlineInputBorder(),
+                        isDense: true,
+                        contentPadding:
+                            const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        suffixIcon: Icon(
+                          Icons.arrow_drop_down,
+                          color: _availableBranches.isEmpty
+                              ? AppColors.textSecondary
+                              : AppColors.textPrimary,
                         ),
                       ),
-                      ...branches.map((branch) {
-                        return DropdownMenuItem<Branch?>(
-                          value: branch,
-                          child: Text(
-                            branch.name,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        );
-                      }),
-                    ],
-                    selectedItemBuilder: (context) {
-                      return [
-                        const Text(
-                          'All Branches',
-                          overflow: TextOverflow.ellipsis,
+                      child: Text(
+                        branchLabel,
+                        style: TextStyle(
+                          color: _availableBranches.isEmpty
+                              ? AppColors.textSecondary
+                              : AppColors.textPrimary,
                         ),
-                        ...branches.map((branch) {
-                          return Text(
-                            branch.name,
-                            overflow: TextOverflow.ellipsis,
-                          );
-                        }),
-                      ];
-                    },
-                    onChanged: (branch) {
-                      setState(() {
-                        _selectedBranch = branch;
-                      });
-                      _loadDashboardData();
-                    },
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -378,28 +466,35 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
             'Total Cash Sales',
             format.format(data['totalCashSales'] ?? 0.0),
             Icons.money,
-            Colors.green,
+            AppColors.textPrimary,
           ),
           const SizedBox(height: 12),
           _buildSummaryCard(
-            'Total Card + Online Sales',
-            format.format(data['totalCardOnlineSales'] ?? 0.0),
+            'Card Sales',
+            format.format(data['totalCardSales'] ?? 0.0),
             Icons.credit_card,
-            Colors.blue,
+            AppColors.textPrimary,
+          ),
+          const SizedBox(height: 12),
+          _buildSummaryCard(
+            'Online Sales',
+            format.format(data['totalOnlineSales'] ?? 0.0),
+            Icons.shopping_cart,
+            AppColors.textPrimary,
           ),
           const SizedBox(height: 12),
           _buildSummaryCard(
             'UPI Payments',
             format.format(data['totalQrPayments'] ?? 0.0),
             Icons.qr_code,
-            Colors.teal,
+            AppColors.textPrimary,
           ),
           const SizedBox(height: 12),
           _buildTotalCard(
             'Total Sales',
             format.format(totalSalesAmount),
             Icons.trending_up,
-            Colors.green,
+            AppColors.success,
           ),
           const SizedBox(height: 24),
           // Expenses Section
@@ -409,21 +504,21 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
             'Total Cash Expenses',
             format.format(data['totalExpenses'] ?? 0.0),
             Icons.receipt_long,
-            Colors.red,
+            AppColors.textPrimary,
           ),
           const SizedBox(height: 12),
           _buildSummaryCard(
             'Total Credit Expenses',
             format.format(data['totalCreditExpenses'] ?? 0.0),
             Icons.credit_card_outlined,
-            Colors.amber,
+            AppColors.textPrimary,
           ),
           const SizedBox(height: 12),
           _buildTotalCard(
             'Total Expenses',
             format.format(totalExpensesAmount),
             Icons.account_balance,
-            Colors.deepOrange,
+            AppColors.error,
           ),
           const SizedBox(height: 24),
           // Others Section
@@ -433,14 +528,14 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
             'Total Due Amounts',
             format.format(data['totalDues'] ?? 0.0),
             Icons.pending_actions,
-            Colors.orange,
+            AppColors.warning,
           ),
           const SizedBox(height: 12),
           _buildSummaryCard(
             'Total Closing Cash',
             format.format(data['totalClosingCash'] ?? 0.0),
             Icons.account_balance_wallet,
-            Colors.purple,
+            AppColors.primary,
           ),
         ],
       ),
@@ -572,7 +667,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                     title,
                     style: TextStyle(
                       fontSize: 14,
-                      color: Colors.grey[600],
+                      color: AppColors.textTertiary,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -652,14 +747,16 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: status == 'Open' ? Colors.orange.shade100 : Colors.green.shade100,
+              color: status == 'Open'
+                  ? AppColors.warning.withValues(alpha: 0.2)
+                  : AppColors.success.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(4),
             ),
             child: Text(
               status,
               style: TextStyle(
                 fontSize: 12,
-                color: status == 'Open' ? Colors.orange.shade700 : Colors.green.shade700,
+                color: status == 'Open' ? AppColors.warning : AppColors.success,
               ),
             ),
           ),
@@ -1121,4 +1218,5 @@ class _CustomDatePickerDialogState extends State<_CustomDatePickerDialog> {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 }
+
 

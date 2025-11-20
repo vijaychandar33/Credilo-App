@@ -4,6 +4,7 @@ import 'screens/dashboard_home_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/auth_service.dart';
 import 'config/supabase_config.dart';
+import 'utils/app_colors.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -50,28 +51,27 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Business Finance Manager',
-      theme: ThemeData(
+    final appTheme = ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.dark(
-          primary: Colors.blue,
-          secondary: Colors.blueAccent,
-          surface: const Color(0xFF121212),
-          error: Colors.red,
-          onPrimary: Colors.white,
-          onSecondary: Colors.white,
-          onSurface: Colors.white,
-          onError: Colors.white,
+          primary: AppColors.primary,
+          secondary: AppColors.primaryLight,
+          surface: AppColors.surface,
+          surfaceContainerHighest: AppColors.surfaceElevated,
+          error: AppColors.error,
+          onPrimary: AppColors.textPrimary,
+          onSecondary: AppColors.textPrimary,
+          onSurface: AppColors.textPrimary,
+          onError: AppColors.textPrimary,
         ),
-        scaffoldBackgroundColor: Colors.black,
+        scaffoldBackgroundColor: AppColors.background,
         appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF1E1E1E),
-          foregroundColor: Colors.white,
+          backgroundColor: AppColors.surfaceElevated,
+          foregroundColor: AppColors.textPrimary,
           elevation: 0,
         ),
         cardTheme: CardThemeData(
-          color: const Color(0xFF1E1E1E),
+          color: AppColors.surfaceElevated,
           elevation: 2,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
@@ -79,26 +79,32 @@ class _MyAppState extends State<MyApp> {
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: const Color(0xFF1E1E1E),
+          fillColor: AppColors.surfaceElevated,
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: Colors.grey[800]!),
+            borderSide: const BorderSide(color: AppColors.border),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: Colors.grey[800]!),
+            borderSide: const BorderSide(color: AppColors.border),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: Colors.blue, width: 2),
+            borderSide: const BorderSide(color: AppColors.borderFocused, width: 2),
           ),
         ),
         dropdownMenuTheme: DropdownMenuThemeData(
           menuStyle: MenuStyle(
-            backgroundColor: WidgetStateProperty.all(const Color(0xFF1E1E1E)),
+            backgroundColor: WidgetStateProperty.all(AppColors.surfaceElevated),
           ),
         ),
-      ),
+      );
+
+    return MaterialApp(
+      title: 'Business Finance Manager',
+      theme: appTheme,
+      darkTheme: appTheme,
+      themeMode: ThemeMode.dark,
       home: _isLoading
           ? const Scaffold(
               body: Center(child: CircularProgressIndicator()),

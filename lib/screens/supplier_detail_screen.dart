@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/app_colors.dart';
 import 'package:intl/intl.dart';
 import '../models/credit_expense.dart';
 import '../models/supplier.dart';
@@ -158,7 +159,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                     groupValue: selectedStatus,
                     // ignore: deprecated_member_use
                     onChanged: null,
-                    activeColor: Colors.green,
+                    activeColor: AppColors.success,
                   ),
                   selected: selectedStatus == CreditExpenseStatus.paid,
                   onTap: () {
@@ -173,7 +174,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                     groupValue: selectedStatus,
                     // ignore: deprecated_member_use
                     onChanged: null,
-                    activeColor: Colors.orange,
+                    activeColor: AppColors.warning,
                   ),
                   selected: selectedStatus == CreditExpenseStatus.unpaid,
                   onTap: () {
@@ -271,7 +272,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            style: TextButton.styleFrom(foregroundColor: AppColors.error),
             child: const Text('Delete'),
           ),
         ],
@@ -375,7 +376,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                               style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.orange,
+                                color: AppColors.warning,
                               ),
                             ),
                           ],
@@ -391,11 +392,11 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.receipt_long, size: 64, color: Colors.grey[400]),
+                              Icon(Icons.receipt_long, size: 64, color: AppColors.textSecondary),
                               const SizedBox(height: 16),
                               Text(
                                 'No expenses found',
-                                style: TextStyle(color: Colors.grey[400]),
+                                style: TextStyle(color: AppColors.textSecondary),
                               ),
                             ],
                           ),
@@ -462,14 +463,14 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                                             if (expense.branchName != null) ...[
                                               Row(
                                                 children: [
-                                                  Icon(Icons.store, size: 14, color: Colors.grey[600]),
+                                                  Icon(Icons.store, size: 14, color: AppColors.textTertiary),
                                                   const SizedBox(width: 4),
                                                   Text(
                                                     expense.branchName!,
                                                     style: TextStyle(
                                                       fontSize: 14,
                                                       fontWeight: FontWeight.w500,
-                                                      color: Colors.grey[700],
+                                                      color: AppColors.textTertiary,
                                                     ),
                                                   ),
                                                   if (expense.branchLocation != null) ...[
@@ -478,7 +479,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                                                       '(${expense.branchLocation!})',
                                                       style: TextStyle(
                                                         fontSize: 12,
-                                                        color: Colors.grey[600],
+                                                        color: AppColors.textTertiary,
                                                       ),
                                                     ),
                                                   ],
@@ -492,7 +493,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                                                   expense.category,
                                                   style: TextStyle(
                                                     fontSize: 14,
-                                                    color: Colors.grey[600],
+                                                    color: AppColors.textTertiary,
                                                   ),
                                                 ),
                                                 const SizedBox(width: 8),
@@ -503,8 +504,8 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                                                   ),
                                                   decoration: BoxDecoration(
                                                     color: isUnpaid
-                                                        ? Colors.orange.withValues(alpha: 0.2)
-                                                        : Colors.green.withValues(alpha: 0.2),
+                                                        ? AppColors.warning.withValues(alpha: 0.2)
+                                                        : AppColors.success.withValues(alpha: 0.2),
                                                     borderRadius: BorderRadius.circular(12),
                                                   ),
                                                   child: Text(
@@ -512,7 +513,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                                                     style: TextStyle(
                                                       fontSize: 12,
                                                       fontWeight: FontWeight.w600,
-                                                      color: isUnpaid ? Colors.orange : Colors.green,
+                                                      color: isUnpaid ? AppColors.warning : AppColors.success,
                                                     ),
                                                   ),
                                                 ),
@@ -524,7 +525,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                                                 expense.note!,
                                                 style: TextStyle(
                                                   fontSize: 12,
-                                                  color: Colors.grey[500],
+                                                  color: AppColors.textTertiary,
                                                 ),
                                                 maxLines: 2,
                                                 overflow: TextOverflow.ellipsis,
@@ -549,7 +550,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                       color: Theme.of(context).colorScheme.surface,
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.1),
+                          color: AppColors.overlay,
                           blurRadius: 4,
                           offset: const Offset(0, -2),
                         ),

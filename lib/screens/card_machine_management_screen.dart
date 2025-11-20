@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/app_colors.dart';
 import '../models/card_sale.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
@@ -172,7 +173,7 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
+              backgroundColor: AppColors.error,
             ),
             child: const Text('Delete'),
           ),
@@ -219,11 +220,11 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.credit_card, size: 64, color: Colors.grey),
+                      const Icon(Icons.credit_card, size: 64, color: AppColors.textTertiary),
                       const SizedBox(height: 16),
                       const Text(
                         'No card machines added',
-                        style: TextStyle(fontSize: 18, color: Colors.grey),
+                        style: TextStyle(fontSize: 18, color: AppColors.textTertiary),
                       ),
                       const SizedBox(height: 8),
                       ElevatedButton.icon(
@@ -261,7 +262,7 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
                               tooltip: 'Edit',
                             ),
                             IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.red),
+                              icon: const Icon(Icons.delete, color: AppColors.error),
                               onPressed: () => _deleteMachine(machine),
                               tooltip: 'Delete',
                             ),

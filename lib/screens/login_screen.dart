@@ -5,6 +5,7 @@ import '../models/user.dart' as models;
 import '../models/branch.dart';
 import 'dashboard_home_screen.dart';
 import 'registration_screen.dart';
+import '../utils/app_colors.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -63,7 +64,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Login failed: ${e.toString()}'),
-            backgroundColor: Colors.red,
+            backgroundColor: AppColors.error,
           ),
         );
       }
@@ -95,19 +96,10 @@ class _LoginScreenState extends State<LoginScreen> {
             .map((item) => Branch.fromJson(item['branches']))
             .toList();
 
-        // Check if user has any access (branches or business ownership)
+        // Check if user has any access (branches)
         if (branches.isEmpty) {
-          // Check if user is a business owner
-          final businessOwnersResponse = await Supabase.instance.client
-              .from('business_owners')
-              .select()
-              .eq('user_id', userId)
-              .limit(1);
-          
-          if ((businessOwnersResponse as List).isEmpty) {
-            // User has no access, prevent login
-            throw Exception('User account has been deactivated. Please contact administrator.');
-          }
+          // User has no branch access, prevent login
+          throw Exception('User account has been deactivated. Please contact administrator.');
         }
 
         // Set current user and branches
@@ -139,7 +131,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   const Icon(
                     Icons.account_balance_wallet,
                     size: 80,
-                    color: Colors.blue,
+                    color: AppColors.primary,
                   ),
                   const SizedBox(height: 24),
                   const Text(
@@ -155,7 +147,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     'Login to continue',
                     style: TextStyle(
                       fontSize: 16,
-                      color: Colors.grey[400],
+                      color: AppColors.textSecondary,
                     ),
                     textAlign: TextAlign.center,
                   ),

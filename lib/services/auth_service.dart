@@ -87,24 +87,27 @@ class AuthService {
     }
   }
 
+
   Future<void> _checkAndCreateDefaultBranch(String userId) async {
     try {
-      // Check if user owns any businesses (using business_owners table)
-      final businessOwnersResponse = await Supabase.instance.client
-          .from('business_owners')
+      // Check if user is a business owner (has business_owner role in any branch_users record)
+      final businessOwnerRecords = await Supabase.instance.client
+          .from('branch_users')
           .select('business_id')
-          .eq('user_id', userId);
+          .eq('user_id', userId)
+          .eq('role', 'business_owner');
 
-      final businessIds = (businessOwnersResponse as List)
-          .map((bo) => bo['business_id'] as String)
-          .toList();
-
-      if (businessIds.isEmpty) {
-        debugPrint('User does not own any businesses');
+      if ((businessOwnerRecords as List).isEmpty) {
+        debugPrint('User is not a business owner');
         return;
       }
 
-      // Get businesses by querying each one individually (since .in_() doesn't work well with RLS)
+      // Get unique business IDs
+      final Set<String> businessIds = (businessOwnerRecords as List)
+          .map((r) => r['business_id'] as String)
+          .toSet();
+
+      // Get businesses by querying each one individually
       final List<dynamic> businesses = [];
       for (var businessId in businessIds) {
         try {
@@ -122,7 +125,7 @@ class AuthService {
       }
       
       if (businesses.isNotEmpty) {
-        debugPrint('User owns ${businesses.length} business(es). Checking for branches...');
+        debugPrint('User is business owner of ${businesses.length} business(es). Checking for branches...');
         
         for (var business in businesses) {
           final businessId = business['id'] as String;
@@ -146,7 +149,6 @@ class AuthService {
                     'business_id': businessId,
                     'name': '${business['name']} - Main Branch',
                     'location': 'Main Location',
-                    'manager_id': userId,
                     'status': 'active',
                   })
                   .select()
@@ -154,16 +156,17 @@ class AuthService {
               
               final branch = Branch.fromJson(branchResponse);
               
-              // Create branch_user record
+              // Create branch_user record with business_owner role
               await Supabase.instance.client
                   .from('branch_users')
                   .insert({
                     'branch_id': branch.id,
                     'user_id': userId,
-                    'role': 'owner',
+                    'business_id': businessId,
+                    'role': 'business_owner',
                   });
               
-              debugPrint('Created default branch and assigned owner role');
+              debugPrint('Created default branch and assigned business_owner role');
               
               // Reload branches and branch_users
               await refreshBranches();
@@ -171,24 +174,40 @@ class AuthService {
               debugPrint('Error creating default branch: $e');
             }
           } else {
-            // Business has branches but no branch_users - assign owner to first branch
-            debugPrint('Business has branches but user not assigned. Assigning to first branch...');
-            final firstBranch = branches.first;
+            // Business has branches - check if user is assigned to all of them
+            // If not, assign business_owner role to missing branches
+            debugPrint('Business has ${branches.length} branch(es). Checking assignments...');
             
-            try {
-              await Supabase.instance.client
-                  .from('branch_users')
-                  .insert({
-                    'branch_id': firstBranch['id'],
-                    'user_id': userId,
-                    'role': 'owner',
-                  });
+            for (var branch in branches) {
+              final branchId = branch['id'] as String;
               
-              debugPrint('Assigned owner role to existing branch');
-              await refreshBranches();
-            } catch (e) {
-              debugPrint('Error assigning branch_user: $e');
+              final existingAssignment = await Supabase.instance.client
+                  .from('branch_users')
+                  .select()
+                  .eq('user_id', userId)
+                  .eq('branch_id', branchId)
+                  .maybeSingle();
+              
+              if (existingAssignment == null) {
+                // User not assigned to this branch, assign business_owner role
+                try {
+                  await Supabase.instance.client
+                      .from('branch_users')
+                      .insert({
+                        'branch_id': branchId,
+                        'user_id': userId,
+                        'business_id': businessId,
+                        'role': 'business_owner',
+                      });
+                  
+                  debugPrint('Assigned business_owner role to branch ${branch['name']}');
+                } catch (e) {
+                  debugPrint('Error assigning branch_user: $e');
+                }
+              }
             }
+            
+            await refreshBranches();
           }
         }
       }
@@ -304,8 +323,8 @@ class AuthService {
     final dateOnly = DateTime(date.year, date.month, date.day);
     final yesterday = todayDateOnly.subtract(const Duration(days: 1));
     
-    if (role == UserRole.owner) {
-      return true; // Owner can edit any date
+    if (role == UserRole.businessOwner || role == UserRole.owner) {
+      return true; // Business owner & owner can edit any date
     } else if (role == UserRole.manager) {
       return dateOnly == todayDateOnly || dateOnly == yesterday;
     } else if (role == UserRole.staff) {
@@ -323,7 +342,7 @@ class AuthService {
     final dateOnly = DateTime(date.year, date.month, date.day);
     final yesterday = todayDateOnly.subtract(const Duration(days: 1));
     
-    if (role == UserRole.owner) {
+    if (role == UserRole.businessOwner || role == UserRole.owner) {
       return true;
     } else if (role == UserRole.manager) {
       return dateOnly == todayDateOnly || dateOnly == yesterday;
@@ -335,7 +354,7 @@ class AuthService {
 
   bool canDelete() {
     final role = currentRole;
-    return role == UserRole.owner || role == UserRole.manager;
+    return role == UserRole.businessOwner || role == UserRole.owner || role == UserRole.manager;
   }
 
   // Check if user is a business owner (owns any business) - cached
@@ -346,10 +365,7 @@ class AuthService {
   }
 
   // Refresh business owner status (call after login/setUser)
-  // A user is a business owner if:
-  // 1. They are in business_owners table, OR
-  // 2. They own a business directly (businesses.owner_id = user.id), OR
-  // 3. They are owner of all branches of a business
+  // A user is a business owner if they have business_owner role in any branch_users record
   Future<void> refreshBusinessOwnerStatus() async {
     if (_currentUser == null) {
       _isBusinessOwnerCached = false;
@@ -357,92 +373,52 @@ class AuthService {
     }
     
     try {
-      // First check if user is in business_owners table
-      try {
-        final businessOwnersResponse = await Supabase.instance.client
-            .from('business_owners')
-            .select()
-            .eq('user_id', _currentUser!.id)
-            .limit(1);
-        
-        debugPrint('Business owners query result: ${businessOwnersResponse.length} records');
-        
-        if ((businessOwnersResponse as List).isNotEmpty) {
-          _isBusinessOwnerCached = true;
-          debugPrint('User is business owner (in business_owners table)');
-          return;
-        }
-      } catch (e) {
-        debugPrint('Error querying business_owners table: $e');
-        // Continue to check other methods
+      // Check if user has business_owner role in any branch_users record
+      _isBusinessOwnerCached = _branchUsers.any((bu) => bu.role == UserRole.businessOwner);
+      
+      if (_isBusinessOwnerCached == true) {
+        debugPrint('User is business owner');
+      } else {
+        debugPrint('User is not a business owner');
       }
-      
-      // No longer checking owner_id - only using business_owners table
-      
-      // Check if user is owner of all branches of any business
-      // Get all businesses
-      final allBusinesses = await Supabase.instance.client
-          .from('businesses')
-          .select('id');
-      
-      for (var business in allBusinesses as List) {
-        final businessId = business['id'] as String;
-        
-        // Get all branches for this business
-        final branches = await Supabase.instance.client
-            .from('branches')
-            .select('id')
-            .eq('business_id', businessId);
-        
-        if ((branches as List).isEmpty) continue;
-        
-        // Check if user is owner of all branches
-        bool isOwnerOfAllBranches = true;
-        for (var branch in branches) {
-          final branchId = branch['id'] as String;
-          final branchUser = await Supabase.instance.client
-              .from('branch_users')
-              .select()
-              .eq('branch_id', branchId)
-              .eq('user_id', _currentUser!.id)
-              .eq('role', 'owner')
-              .maybeSingle();
-          
-          if (branchUser == null) {
-            isOwnerOfAllBranches = false;
-            break;
-          }
-        }
-        
-        if (isOwnerOfAllBranches) {
-          _isBusinessOwnerCached = true;
-          return;
-        }
-      }
-      
-      _isBusinessOwnerCached = false;
     } catch (e) {
       debugPrint('Error checking business ownership: $e');
       _isBusinessOwnerCached = false;
     }
   }
 
-  // Check if user can manage users (only business owners)
+  // Check if user can manage users (business owners and owners)
   bool canManageUsers() {
-    return isBusinessOwner();
+    if (_currentUser == null) return false;
+
+    // Fast-path: current branch role already tells us
+    final role = currentRole;
+    if (role == UserRole.businessOwner || role == UserRole.owner) {
+      return true;
+    }
+
+    // If branch assignments are still loading, fall back to cached ownership flag
+    if (_branchUsers.isEmpty) {
+      return _isBusinessOwnerCached ?? false;
+    }
+
+    // Otherwise rely on the full branch assignments list
+    return _branchUsers.any(
+      (bu) => bu.role == UserRole.businessOwner || bu.role == UserRole.owner,
+    );
   }
 
-  // Check if user is a branch owner (has owner role in at least one branch)
+  // Check if user is a branch owner (has owner or business_owner role in at least one branch)
   bool isBranchOwner() {
     if (_currentUser == null) return false;
-    return _branchUsers.any((bu) => bu.role == UserRole.owner);
+    return _branchUsers.any((bu) => bu.role == UserRole.owner || bu.role == UserRole.businessOwner);
   }
 
-  // Get branches where user is an owner
+  // Get branches where user is an owner or business owner
   List<Branch> get ownerBranches {
     if (_currentUser == null) return [];
     final ownerBranchIds = _branchUsers
-        .where((bu) => bu.role == UserRole.owner)
+        .where((bu) => bu.role == UserRole.owner || bu.role == UserRole.businessOwner)
         .map((bu) => bu.branchId)
         .toList();
     return _userBranches.where((b) => ownerBranchIds.contains(b.id)).toList();
@@ -462,7 +438,7 @@ class AuthService {
   }
 
   bool canViewAllBranches() {
-    return currentRole == UserRole.owner;
+    return currentRole == UserRole.businessOwner || currentRole == UserRole.owner;
   }
 
   Future<void> logout() async {

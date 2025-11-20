@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import '../models/user.dart';
 import '../models/branch.dart';
 import '../services/auth_service.dart';
+import '../utils/app_colors.dart';
 
 class UserManagementScreen extends StatefulWidget {
   const UserManagementScreen({super.key});
@@ -16,6 +17,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   List<Map<String, dynamic>> _users = [];
   List<Branch> _allBranches = [];
   bool _isLoading = true;
+  bool _isBusinessOwner = false;
+  bool _isOwnerOnly = false;
 
   @override
   void initState() {
@@ -24,21 +27,26 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   }
 
   Future<void> _checkAccessAndLoad() async {
-    // Check if user is a business owner
-    final isBusinessOwner = await _authService.isBusinessOwnerAsync();
-    if (!isBusinessOwner) {
-      // User is not a business owner, show error and go back
+    // Check if user can manage users (business owner or owner)
+    final canManage = _authService.canManageUsers();
+    if (!canManage) {
+      // User cannot manage users, show error and go back
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Access denied. Only business owners can manage users.'),
-            backgroundColor: Colors.red,
+            content: Text('Access denied. Only business owners and owners can manage users.'),
+            backgroundColor: AppColors.error,
           ),
         );
         Navigator.pop(context);
       }
       return;
     }
+    
+    // Check if user is business owner or owner only
+    _isBusinessOwner = await _authService.isBusinessOwnerAsync();
+    _isOwnerOnly = !_isBusinessOwner && _authService.isBranchOwner();
+    
     _loadData();
   }
 
@@ -58,86 +66,50 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         return;
       }
 
-      // Get all branches for businesses owned by the current user
-      // Business owners can be:
-      // 1. In business_owners table
-      // 2. Direct owners (businesses.owner_id = currentUser.id) - legacy
-      // 3. Owners of all branches of a business
+      // Get branches based on user role
       List<dynamic> branchesResponse = [];
-      Set<String> businessIds = {};
       
       try {
-        // First, get businesses where user is in business_owners table
-        final businessOwnersResponse = await Supabase.instance.client
-            .from('business_owners')
-            .select('business_id')
-            .eq('user_id', currentUser.id);
-        
-        for (var bo in businessOwnersResponse as List) {
-          final businessId = bo['business_id'] as String;
-          if (!businessIds.contains(businessId)) {
-            businessIds.add(businessId);
-            // Get all branches for this business
-            final businessBranches = await Supabase.instance.client
-          .from('branches')
-                .select('*, businesses!inner(id)')
-                .eq('business_id', businessId);
-            branchesResponse.addAll(businessBranches as List);
-          }
-        }
-        
-        // No longer checking owner_id - only using business_owners table
-        
-        // Now find businesses where user owns all branches
-        // Get all businesses
-        final allBusinesses = await Supabase.instance.client
-            .from('businesses')
-            .select('id');
-        
-        for (var business in allBusinesses as List) {
-          final businessId = business['id'] as String;
+        if (_isBusinessOwner) {
+          // Business owner: get all branches for their businesses
+          Set<String> businessIds = {};
+          final ownerAssignments = await Supabase.instance.client
+              .from('branch_users')
+              .select('business_id')
+              .eq('user_id', currentUser.id)
+              .eq('role', 'business_owner');
           
-          // Skip if already included
-          if (businessIds.contains(businessId)) continue;
+          businessIds = (ownerAssignments as List)
+              .map((record) => record['business_id'] as String?)
+              .whereType<String>()
+              .toSet();
           
-          // Get all branches for this business
-          final businessBranches = await Supabase.instance.client
-              .from('branches')
-              .select('id')
-              .eq('business_id', businessId);
-          
-          if ((businessBranches as List).isEmpty) continue;
-          
-          // Check if user is owner of all branches
-          bool isOwnerOfAllBranches = true;
-          for (var branch in businessBranches) {
-            final branchId = branch['id'] as String;
-            final branchUser = await Supabase.instance.client
-                .from('branch_users')
-                .select()
-                .eq('branch_id', branchId)
-                .eq('user_id', currentUser.id)
-                .eq('role', 'owner')
-                .maybeSingle();
-            
-            if (branchUser == null) {
-              isOwnerOfAllBranches = false;
-              break;
+          if (businessIds.isNotEmpty) {
+            for (var businessId in businessIds) {
+              final allBusinessBranches = await Supabase.instance.client
+                  .from('branches')
+                  .select('*, businesses!inner(id)')
+                  .eq('business_id', businessId);
+              branchesResponse.addAll(allBusinessBranches as List);
             }
           }
+        } else if (_isOwnerOnly) {
+          // Owner only: get only branches where they are owner
+          final ownerBranchAssignments = await Supabase.instance.client
+              .from('branch_users')
+              .select('branch_id, branches(*), business_id')
+              .eq('user_id', currentUser.id)
+              .eq('role', 'owner');
           
-          if (isOwnerOfAllBranches) {
-            businessIds.add(businessId);
-            // Get all branches for this business
-            final allBusinessBranches = await Supabase.instance.client
-                .from('branches')
-                .select('*, businesses!inner(id)')
-                .eq('business_id', businessId);
-            branchesResponse.addAll(allBusinessBranches as List);
+          for (var assignment in ownerBranchAssignments as List) {
+            final branchData = assignment['branches'];
+            if (branchData != null) {
+              branchesResponse.add(branchData);
+            }
           }
         }
       } catch (e) {
-        debugPrint('Error loading branches as business owner: $e');
+        debugPrint('Error loading branches: $e');
         if (mounted) {
           setState(() {
             _isLoading = false;
@@ -295,7 +267,28 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         }
       }
 
-      _users = userMap.values.toList();
+      // Filter users to only show branches the current user can manage
+      final List<Map<String, dynamic>> filteredUsers = [];
+      final managedBranchIds = _allBranches.map((b) => b.id).toSet();
+      
+      for (var userEntry in userMap.values) {
+        final userBranches = userEntry['branches'] as List<Map<String, dynamic>>;
+        // Filter branches to only show those the current user can manage
+        final filteredBranches = userBranches.where((branchData) {
+          final branch = branchData['branch'] as Branch;
+          return managedBranchIds.contains(branch.id);
+        }).toList();
+        
+        // Only include user if they have at least one branch in managed branches
+        if (filteredBranches.isNotEmpty) {
+          filteredUsers.add({
+            'user': userEntry['user'],
+            'branches': filteredBranches,
+          });
+        }
+      }
+      
+      _users = filteredUsers;
       debugPrint('Final users count: ${_users.length}');
     } catch (e) {
       debugPrint('Error loading users: $e');
@@ -371,22 +364,24 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                         obscureText: obscurePassword,
                       ),
                     ),
-                const SizedBox(height: 12),
-                CheckboxListTile(
-                  title: const Text('Make Business Owner'),
-                  subtitle: const Text('User will have full access to all branches and can manage users'),
-                  value: makeBusinessOwner,
-                  onChanged: (value) {
-                    setDialogState(() {
-                      makeBusinessOwner = value ?? false;
-                      // If making business owner, set role to owner and select first branch
-                      if (makeBusinessOwner && _allBranches.isNotEmpty) {
-                        selectedBranch = _allBranches.first;
-                        selectedRole = UserRole.owner;
-                      }
-                    });
-                  },
-                ),
+                if (_isBusinessOwner) ...[
+                  const SizedBox(height: 12),
+                  CheckboxListTile(
+                    title: const Text('Make Business Owner'),
+                    subtitle: const Text('User will have full access to all branches and can manage users'),
+                    value: makeBusinessOwner,
+                    onChanged: (value) {
+                      setDialogState(() {
+                        makeBusinessOwner = value ?? false;
+                        // If making business owner, set role to owner and select first branch
+                        if (makeBusinessOwner && _allBranches.isNotEmpty) {
+                          selectedBranch = _allBranches.first;
+                          selectedRole = UserRole.owner;
+                        }
+                      });
+                    },
+                  ),
+                ],
                 if (!makeBusinessOwner) ...[
                 const SizedBox(height: 12),
                 DropdownButtonFormField<Branch>(
@@ -414,10 +409,16 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     labelText: 'Role *',
                     border: OutlineInputBorder(),
                   ),
-                  items: UserRole.values.map((role) {
+                  items: (_isBusinessOwner 
+                    ? UserRole.values.where((role) => role != UserRole.businessOwner)
+                    : [UserRole.manager, UserRole.staff]
+                  ).map((role) {
+                    String roleName = role.toString().split('.').last;
+                    // Capitalize first letter
+                    roleName = roleName[0].toUpperCase() + roleName.substring(1);
                     return DropdownMenuItem(
                       value: role,
-                      child: Text(role.toString().split('.').last.toUpperCase()),
+                      child: Text(roleName),
                     );
                   }).toList(),
                   onChanged: (role) {
@@ -447,7 +448,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Please fill all required fields (password must be at least 6 characters)'),
-                        backgroundColor: Colors.red,
+                        backgroundColor: AppColors.error,
                       ),
                     );
                   }
@@ -491,6 +492,10 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       // Save current session to restore after user creation
       final currentOwnerSession = supabase.auth.currentSession;
       
+      if (currentOwnerSession == null) {
+        throw Exception('Owner session not found. Please sign in again.');
+      }
+      
       try {
         final authResponse = await supabase.auth.signUp(
           email: email,
@@ -509,14 +514,26 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         debugPrint('Created new auth user: $userId');
         
         // If signUp created a session (auto sign-in), restore owner session
-        if (authResponse.session != null && currentOwnerSession != null) {
+        if (authResponse.session != null) {
           debugPrint('SignUp created session, restoring owner session...');
           try {
+            // Sign out the new user session first
+            await supabase.auth.signOut();
+            // Restore owner session using the saved session object
             await supabase.auth.setSession(currentOwnerSession.accessToken);
+            // Refresh the session to ensure it's valid
+            await supabase.auth.refreshSession();
             debugPrint('Restored owner session after signUp');
+            
+            // Verify we're back to owner session
+            final restoredSession = supabase.auth.currentSession;
+            if (restoredSession?.user.id != currentOwnerSession.user.id) {
+              throw Exception('Session restoration failed - wrong user');
+            }
           } catch (e) {
             debugPrint('Failed to restore session after signUp: $e');
-            // Continue anyway - the user record will be created
+            // If session restoration fails, throw error to prevent proceeding with wrong session
+            throw Exception('Failed to restore owner session. Please try again.');
           }
         }
       } catch (signUpError) {
@@ -645,8 +662,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         }
       }
 
-      // Step 3: If making business owner, call the function to make them business owner
-      // This will automatically assign owner role to all branches
+      // Step 3: If making business owner, assign business_owner role to all branches of the business
       if (makeBusinessOwner) {
         try {
           // Get business ID from the branch
@@ -658,45 +674,90 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           
           final businessId = branchData['business_id'] as String;
           
-          // Call the function to make user a business owner
-          await supabase.rpc('make_user_business_owner', params: {
-            'p_user_id': userId,
-            'p_business_id': businessId,
-          });
+          // Get all branches for this business
+          final allBranches = await supabase
+              .from('branches')
+              .select('id')
+              .eq('business_id', businessId);
           
-          debugPrint('Made user $userId a business owner of business $businessId');
+          // Assign business_owner role to user for all branches of this business
+          for (var branchItem in allBranches as List) {
+            final branchId = branchItem['id'] as String;
+            
+            // Check if user is already assigned to this branch
+            final existingBranchUser = await supabase
+                .from('branch_users')
+                .select()
+                .eq('user_id', userId)
+                .eq('branch_id', branchId)
+                .maybeSingle();
+            
+            if (existingBranchUser != null) {
+              // Update existing record to business_owner role
+              await supabase
+                  .from('branch_users')
+                  .update({
+                    'role': 'business_owner',
+                    'business_id': businessId,
+                  })
+                  .eq('id', existingBranchUser['id']);
+            } else {
+              // Insert new record with business_owner role
+              await supabase.from('branch_users').insert({
+                'user_id': userId,
+                'branch_id': branchId,
+                'business_id': businessId,
+                'role': 'business_owner',
+              });
+            }
+          }
+          
+          debugPrint('Made user $userId a business owner of business $businessId (assigned to ${(allBranches as List).length} branches)');
         } catch (e) {
           debugPrint('Error making user business owner: $e');
           // Continue - user was still created and assigned to branch
         }
       } else {
         // Step 4: Check if user is already assigned to this branch
-      final existingBranchUser = await supabase
-          .from('branch_users')
-          .select()
-          .eq('user_id', userId)
-          .eq('branch_id', branch.id)
-          .maybeSingle();
+        // Get business_id from branch
+        final branchData = await supabase
+            .from('branches')
+            .select('business_id')
+            .eq('id', branch.id)
+            .single();
+        
+        final businessId = branchData['business_id'] as String;
+        
+        final existingBranchUser = await supabase
+            .from('branch_users')
+            .select()
+            .eq('user_id', userId)
+            .eq('branch_id', branch.id)
+            .maybeSingle();
 
-      if (existingBranchUser != null) {
-        // User already assigned to this branch, just update role if different
-        if (existingBranchUser['role'] != role.toString().split('.').last) {
-          await supabase
-              .from('branch_users')
-              .update({'role': role.toString().split('.').last})
-              .eq('id', existingBranchUser['id']);
-          debugPrint('Updated user role in branch');
+        if (existingBranchUser != null) {
+          // User already assigned to this branch, just update role if different
+          if (existingBranchUser['role'] != role.toString().split('.').last) {
+            await supabase
+                .from('branch_users')
+                .update({
+                  'role': role.toString().split('.').last,
+                  'business_id': businessId,
+                })
+                .eq('id', existingBranchUser['id']);
+            debugPrint('Updated user role in branch');
+          } else {
+            debugPrint('User already assigned to branch with same role');
+          }
         } else {
-          debugPrint('User already assigned to branch with same role');
-        }
-      } else {
-        // Assign user to branch
-        await supabase.from('branch_users').insert({
-          'user_id': userId,
-          'branch_id': branch.id,
-          'role': role.toString().split('.').last,
-        });
-        debugPrint('Assigned user to branch');
+          // Assign user to branch
+          await supabase.from('branch_users').insert({
+            'user_id': userId,
+            'branch_id': branch.id,
+            'business_id': businessId,
+            'role': role.toString().split('.').last,
+          });
+          debugPrint('Assigned user to branch');
         }
       }
 
@@ -704,7 +765,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('User added successfully'),
-          backgroundColor: Colors.green,
+          backgroundColor: AppColors.success,
         ),
       );
 
@@ -731,38 +792,20 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(errorMessage),
-          backgroundColor: Colors.red,
+                        backgroundColor: AppColors.error,
           duration: const Duration(seconds: 5),
         ),
       );
     }
   }
 
-  // Check if a user is a business owner (owns all branches)
+  // Check if a user is a business owner (has business_owner role in any branch)
   bool _isUserBusinessOwner(List<Map<String, dynamic>> userBranches) {
-    if (_allBranches.isEmpty || userBranches.length != _allBranches.length) {
-      return false;
-    }
-    
-    // Check if user is owner of all branches
-    bool allOwners = true;
-    for (var branchData in userBranches) {
-      if ((branchData['role'] as String).toLowerCase() != 'owner') {
-        allOwners = false;
-        break;
-      }
-    }
-    
-    if (!allOwners) return false;
-    
-    // Verify they're owner of all branches
-    final Set<String> userBranchIds = userBranches
-        .map((b) => (b['branch'] as Branch).id)
-        .toSet();
-    final Set<String> allBranchIds = _allBranches.map((b) => b.id).toSet();
-    
-    return userBranchIds.length == allBranchIds.length && 
-           userBranchIds.every((id) => allBranchIds.contains(id));
+    // Check if user has business_owner role in any branch
+    return userBranches.any((branchData) {
+      final role = (branchData['role'] as String).toLowerCase();
+      return role == 'business_owner';
+    });
   }
 
   // Remove user from all branches
@@ -777,7 +820,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('You cannot remove yourself.'),
-            backgroundColor: Colors.red,
+            backgroundColor: AppColors.error,
             duration: Duration(seconds: 3),
           ),
         );
@@ -806,31 +849,12 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Cannot delete the last business owner. At least one business owner must remain.'),
-              backgroundColor: Colors.red,
+              backgroundColor: AppColors.error,
               duration: Duration(seconds: 3),
             ),
           );
           return;
         }
-      }
-
-      // Remove user from business_owners table first
-      if (isBusinessOwner) {
-        // Get all businesses this user owns
-        final businessOwnersResponse = await supabase
-            .from('business_owners')
-            .select('business_id')
-            .eq('user_id', user.id);
-        
-        for (var bo in businessOwnersResponse as List) {
-          final businessId = bo['business_id'] as String;
-          await supabase
-              .from('business_owners')
-              .delete()
-              .eq('business_id', businessId)
-              .eq('user_id', user.id);
-        }
-        debugPrint('Removed user from business_owners table');
       }
 
       // Remove user from all branches
@@ -839,14 +863,13 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         final role = branchData['role'] as String;
         final branchUserId = branchData['branch_user_id'] as String;
 
-        // Check if trying to delete an owner
-        if (role.toLowerCase() == 'owner') {
-          // Count how many owners exist for this branch
+        // Only guard against removing the last business owner
+        if (role.toLowerCase() == 'business_owner') {
           final ownersResponse = await supabase
               .from('branch_users')
               .select()
               .eq('branch_id', branch.id)
-              .eq('role', 'owner');
+              .eq('role', 'business_owner');
 
           final ownersCount = (ownersResponse as List).length;
 
@@ -854,8 +877,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
             if (!mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Cannot remove ${branch.name}. A branch must have at least one owner.'),
-                backgroundColor: Colors.red,
+                content: Text('Cannot remove ${branch.name}. A branch must have at least one business owner.'),
+                backgroundColor: AppColors.error,
                 duration: const Duration(seconds: 3),
               ),
             );
@@ -869,12 +892,6 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           .eq('id', branchUserId);
       }
 
-      // Remove user as manager from any branches
-      await supabase
-          .from('branches')
-          .update({'manager_id': null})
-          .eq('manager_id', user.id);
-      debugPrint('Removed user as manager from branches');
 
       // Delete user from users table (this will prevent them from logging in)
       // Check if user has any other branch assignments first
@@ -905,7 +922,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('User removed from all branches and business owners'),
-          backgroundColor: Colors.green,
+          backgroundColor: AppColors.success,
         ),
       );
 
@@ -917,7 +934,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error: ${e.toString()}'),
-          backgroundColor: Colors.red,
+                        backgroundColor: AppColors.error,
         ),
       );
     }
@@ -939,21 +956,20 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('You cannot remove yourself from a branch.'),
-            backgroundColor: Colors.red,
+            backgroundColor: AppColors.error,
             duration: Duration(seconds: 3),
           ),
         );
         return;
       }
 
-      // Check if trying to delete an owner
-      if (role.toLowerCase() == 'owner') {
-        // Count how many owners exist for this branch
+      // Only guard against removing the last business owner
+      if (role.toLowerCase() == 'business_owner') {
         final ownersResponse = await supabase
             .from('branch_users')
             .select()
             .eq('branch_id', branchId)
-            .eq('role', 'owner');
+            .eq('role', 'business_owner');
 
         final ownersCount = (ownersResponse as List).length;
 
@@ -961,8 +977,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Cannot delete the last owner. A branch must have at least one owner.'),
-              backgroundColor: Colors.red,
+              content: Text('Cannot delete the last business owner. A branch must have at least one business owner.'),
+              backgroundColor: AppColors.error,
               duration: Duration(seconds: 3),
             ),
           );
@@ -986,7 +1002,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Failed to delete. You may not have permission or the record does not exist.'),
-            backgroundColor: Colors.red,
+            backgroundColor: AppColors.error,
             duration: Duration(seconds: 3),
           ),
         );
@@ -996,7 +1012,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('User removed from branch'),
-          backgroundColor: Colors.green,
+          backgroundColor: AppColors.success,
         ),
       );
 
@@ -1012,8 +1028,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       
       if (errorString.contains('permission') || errorString.contains('policy')) {
         errorMessage = 'Permission denied. You may not have access to delete this user.';
-      } else if (errorString.contains('Cannot delete the last owner')) {
-        errorMessage = 'Cannot delete the last owner. A branch must have at least one owner.';
+      } else if (errorString.contains('Cannot delete the last business owner')) {
+        errorMessage = 'Cannot delete the last business owner. A branch must have at least one business owner.';
       } else {
         errorMessage = 'Error: ${errorString.split(':').last.trim()}';
       }
@@ -1021,7 +1037,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(errorMessage),
-          backgroundColor: Colors.red,
+                        backgroundColor: AppColors.error,
           duration: const Duration(seconds: 4),
         ),
       );
@@ -1032,29 +1048,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     User user,
     List<Map<String, dynamic>> currentBranches,
   ) async {
-    // Check if user is a business owner (owns all branches of a business)
-    bool isBusinessOwner = false;
-    if (_allBranches.isNotEmpty && currentBranches.length == _allBranches.length) {
-      // Check if user is owner of all branches
-      bool allOwners = true;
-      for (var branchData in currentBranches) {
-        if ((branchData['role'] as String).toLowerCase() != 'owner') {
-          allOwners = false;
-          break;
-        }
-      }
-      if (allOwners) {
-        // Verify they're owner of all branches
-        final Set<String> userBranchIds = currentBranches
-            .map((b) => (b['branch'] as Branch).id)
-            .toSet();
-        final Set<String> allBranchIds = _allBranches.map((b) => b.id).toSet();
-        if (userBranchIds.length == allBranchIds.length && 
-            userBranchIds.every((id) => allBranchIds.contains(id))) {
-          isBusinessOwner = true;
-        }
-      }
-    }
+    // Check if user is a business owner (has business_owner role in any branch)
+    bool isBusinessOwner = _isUserBusinessOwner(currentBranches);
     
     // Map of branch_id -> {branch, role, branch_user_id}
     final Map<String, Map<String, dynamic>> branchAssignments = {};
@@ -1092,27 +1087,29 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     ),
                     controller: TextEditingController(text: '${user.name} (${user.email})'),
                   ),
-                  const SizedBox(height: 16),
-                  CheckboxListTile(
-                    title: const Text('Make Business Owner'),
-                    subtitle: const Text('User will have full access to all branches and can manage users'),
-                    value: makeBusinessOwner,
-                    onChanged: (value) {
-                      setDialogState(() {
-                        makeBusinessOwner = value ?? false;
-                        if (makeBusinessOwner) {
-                          // Assign owner role to all branches
-                          for (var branch in _allBranches) {
-                            branchAssignments[branch.id] = {
-                              'branch': branch,
-                              'role': 'owner',
-                              'branch_user_id': branchAssignments[branch.id]?['branch_user_id'],
-                            };
+                  if (_isBusinessOwner) ...[
+                    const SizedBox(height: 16),
+                    CheckboxListTile(
+                      title: const Text('Make Business Owner'),
+                      subtitle: const Text('User will have full access to all branches and can manage users'),
+                      value: makeBusinessOwner,
+                      onChanged: (value) {
+                        setDialogState(() {
+                          makeBusinessOwner = value ?? false;
+                          if (makeBusinessOwner) {
+                            // Assign business_owner role to all branches
+                            for (var branch in _allBranches) {
+                              branchAssignments[branch.id] = {
+                                'branch': branch,
+                                'role': 'business_owner',
+                                'branch_user_id': branchAssignments[branch.id]?['branch_user_id'],
+                              };
+                            }
                           }
-                        }
-                      });
-                    },
-                  ),
+                        });
+                      },
+                    ),
+                  ],
                   if (!makeBusinessOwner) ...[
                     const SizedBox(height: 16),
                     const Text(
@@ -1145,10 +1142,12 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                       onChanged: (value) {
                                         setItemState(() {
                                           if (value == true) {
-                                            // Add assignment
+                                            // Add assignment - default to staff for owners, owner for business owners
                                             branchAssignments[branch.id] = {
                                               'branch': branch,
-                                              'role': UserRole.staff.toString().split('.').last,
+                                              'role': _isBusinessOwner 
+                                                ? UserRole.owner.toString().split('.').last
+                                                : UserRole.staff.toString().split('.').last,
                                               'branch_user_id': null, // New assignment
                                             };
                                           } else {
@@ -1178,10 +1177,15 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                       contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                     ),
                                     isExpanded: true,
-                                    items: UserRole.values.map((role) {
+                                    items: (_isBusinessOwner 
+                                      ? UserRole.values.where((role) => role != UserRole.businessOwner)
+                                      : [UserRole.manager, UserRole.staff]
+                                    ).map((role) {
+                                      String roleName = role.toString().split('.').last;
+                                      roleName = roleName[0].toUpperCase() + roleName.substring(1);
                                       return DropdownMenuItem(
                                         value: role,
-                                        child: Text(role.toString().split('.').last.toUpperCase()),
+                                        child: Text(roleName),
                                       );
                                     }).toList(),
                                     onChanged: (role) {
@@ -1225,17 +1229,49 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                       
                       final businessId = branchData['business_id'] as String;
                       
-                      // Make user a business owner
-                      await Supabase.instance.client.rpc('make_user_business_owner', params: {
-                        'p_user_id': user.id,
-                        'p_business_id': businessId,
-                      });
+                      // Get all branches for this business
+                      final allBranches = await Supabase.instance.client
+                          .from('branches')
+                          .select('id')
+                          .eq('business_id', businessId);
+                      
+                      // Assign business_owner role to user for all branches of this business
+                      for (var branchItem in allBranches as List) {
+                        final branchId = branchItem['id'] as String;
+                        
+                        // Check if user is already assigned to this branch
+                        final existingBranchUser = await Supabase.instance.client
+                            .from('branch_users')
+                            .select()
+                            .eq('user_id', user.id)
+                            .eq('branch_id', branchId)
+                            .maybeSingle();
+                        
+                        if (existingBranchUser != null) {
+                          // Update existing record to business_owner role
+                          await Supabase.instance.client
+                              .from('branch_users')
+                              .update({
+                                'role': 'business_owner',
+                                'business_id': businessId,
+                              })
+                              .eq('id', existingBranchUser['id']);
+                        } else {
+                          // Insert new record with business_owner role
+                          await Supabase.instance.client.from('branch_users').insert({
+                            'user_id': user.id,
+                            'branch_id': branchId,
+                            'business_id': businessId,
+                            'role': 'business_owner',
+                          });
+                        }
+                      }
                       
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('User is now a business owner'),
-                            backgroundColor: Colors.green,
+                            backgroundColor: AppColors.success,
                           ),
                         );
                         Navigator.pop(context);
@@ -1247,7 +1283,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('Error: ${e.toString()}'),
-                            backgroundColor: Colors.red,
+                            backgroundColor: AppColors.error,
                           ),
                         );
                       }
@@ -1289,6 +1325,15 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         final assignment = entry.value;
         final role = assignment['role'] as String;
 
+        // Get business_id from branch
+        final branchData = await supabase
+            .from('branches')
+            .select('business_id')
+            .eq('id', branchId)
+            .single();
+        
+        final businessId = branchData['business_id'] as String;
+
         final oldAssignment = oldAssignmentsMap[branchId];
 
         if (oldAssignment == null) {
@@ -1305,47 +1350,42 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
             await supabase.from('branch_users').insert({
               'user_id': userId,
               'branch_id': branchId,
+              'business_id': businessId,
               'role': role,
             });
           } else {
             // Update existing assignment
             await supabase
                 .from('branch_users')
-                .update({'role': role})
+                .update({
+                  'role': role,
+                  'business_id': businessId,
+                })
                 .eq('id', existing['id']);
           }
         } else {
           // Existing assignment - check if role changed
           final oldRole = oldAssignment['role'] as String;
           if (oldRole.toLowerCase() != role.toLowerCase()) {
-            // Check if changing from owner to non-owner
-            if (oldRole.toLowerCase() == 'owner' && role.toLowerCase() != 'owner') {
-              final ownersResponse = await supabase
+            try {
+              await supabase
                   .from('branch_users')
-                  .select()
-                  .eq('branch_id', branchId)
-                  .eq('role', 'owner');
-
-              final ownersCount = (ownersResponse as List).length;
-
-              if (ownersCount <= 1) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Cannot change role. A branch must have at least one owner.'),
-                    backgroundColor: Colors.red,
-                    duration: Duration(seconds: 3),
-                  ),
-                );
-                return;
-              }
+                  .update({
+                    'role': role,
+                    'business_id': businessId,
+                  })
+                  .eq('id', oldAssignment['branch_user_id'] as String);
+            } catch (e) {
+              if (!mounted) rethrow;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Error updating role: ${e.toString()}'),
+                  backgroundColor: AppColors.error,
+                  duration: const Duration(seconds: 3),
+                ),
+              );
+              return;
             }
-
-            // Update role
-            await supabase
-                .from('branch_users')
-                .update({'role': role})
-                .eq('id', oldAssignment['branch_user_id'] as String);
           }
         }
       }
@@ -1355,35 +1395,22 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         final branch = old['branch'] as Branch;
         if (!newAssignments.containsKey(branch.id)) {
           final branchUserId = old['branch_user_id'] as String;
-          final role = old['role'] as String;
 
-          // Check if trying to delete an owner
-          if (role.toLowerCase() == 'owner') {
-            final ownersResponse = await supabase
+          try {
+            await supabase
                 .from('branch_users')
-                .select()
-                .eq('branch_id', branch.id)
-                .eq('role', 'owner');
-
-            final ownersCount = (ownersResponse as List).length;
-
-            if (ownersCount <= 1) {
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Cannot remove ${branch.name}. A branch must have at least one owner.'),
-                  backgroundColor: Colors.red,
-                  duration: const Duration(seconds: 3),
-                ),
-              );
-              continue;
-            }
+                .delete()
+                .eq('id', branchUserId);
+          } catch (e) {
+            if (!mounted) rethrow;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Error removing ${branch.name}: ${e.toString()}'),
+                backgroundColor: AppColors.error,
+                duration: const Duration(seconds: 3),
+              ),
+            );
           }
-
-          await supabase
-              .from('branch_users')
-              .delete()
-              .eq('id', branchUserId);
         }
       }
 
@@ -1391,7 +1418,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('User branches updated successfully'),
-          backgroundColor: Colors.green,
+          backgroundColor: AppColors.success,
         ),
       );
 
@@ -1403,7 +1430,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error: ${e.toString()}'),
-          backgroundColor: Colors.red,
+                        backgroundColor: AppColors.error,
         ),
       );
     }
@@ -1434,14 +1461,14 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                         Icon(
                           Icons.people_outline,
                           size: 64,
-                          color: Colors.grey[400],
+                          color: AppColors.textSecondary,
                         ),
                         const SizedBox(height: 16),
                         Text(
                           'No users found',
                           style: TextStyle(
                             fontSize: 18,
-                            color: Colors.grey[400],
+                            color: AppColors.textSecondary,
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -1449,7 +1476,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                           'Tap the + icon to add a user',
                           style: TextStyle(
                             fontSize: 14,
-                            color: Colors.grey[600],
+                            color: AppColors.textTertiary,
                           ),
                         ),
                       ],
@@ -1464,12 +1491,20 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                       final user = userData['user'] as User;
                       final branches = userData['branches'] as List<Map<String, dynamic>>;
                       
-                      // Check if user is a business owner
+                      // Check if user is a business owner or owner
                       final isUserBusinessOwner = _isUserBusinessOwner(branches);
+                      final isUserOwner = branches.any((b) => 
+                        (b['role'] as String).toLowerCase() == 'owner' && 
+                        (b['role'] as String).toLowerCase() != 'business_owner'
+                      );
                       
                       // Hide delete button for current user's own account
                       final currentUser = _authService.currentUser;
                       final isCurrentUser = currentUser != null && currentUser.id == user.id;
+                      
+                      // For owner-only users, hide edit/delete for business_owner and owner roles
+                      final canEditUser = _isBusinessOwner || (!isUserBusinessOwner && !isUserOwner);
+                      final canDeleteUser = _isBusinessOwner && isUserBusinessOwner && !isCurrentUser;
 
                       return Card(
                         margin: const EdgeInsets.only(bottom: 12),
@@ -1491,17 +1526,18 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                   ],
                                 ),
                               ),
-                              IconButton(
-                                icon: const Icon(Icons.edit, color: Colors.blue),
-                                onPressed: () {
-                                  _editUserBranches(user, branches);
-                                },
-                                tooltip: 'Edit Branch and Role',
-                              ),
-                              // Show user-level delete button for business owners (not self)
-                              if (isUserBusinessOwner && !isCurrentUser)
+                              if (!isCurrentUser && canEditUser)
                                 IconButton(
-                                  icon: const Icon(Icons.delete, color: Colors.red),
+                                  icon: const Icon(Icons.edit, color: AppColors.primary),
+                                  onPressed: () {
+                                    _editUserBranches(user, branches);
+                                  },
+                                  tooltip: 'Edit Branch and Role',
+                                ),
+                              // Show user-level delete button for business owners (not self, only if current user is business owner)
+                              if (canDeleteUser)
+                                IconButton(
+                                  icon: const Icon(Icons.delete, color: AppColors.error),
                                   onPressed: () {
                                     showDialog(
                                       context: context,
@@ -1521,7 +1557,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                               _removeUserFromAllBranches(user, branches);
                                             },
                                             style: ElevatedButton.styleFrom(
-                                              backgroundColor: Colors.red,
+                                              backgroundColor: AppColors.error,
                                             ),
                                             child: const Text('Delete'),
                                           ),
@@ -1538,48 +1574,57 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                             final role = branchData['role'] as String;
                             final branchUserId = branchData['branch_user_id'] as String;
 
+                            final branchRole = role.toLowerCase();
+                            final isBranchBusinessOwner = branchRole == 'business_owner';
+                            final isBranchOwner = branchRole == 'owner';
+                            // Hide branch delete buttons for business owners (they have complete delete button)
+                            // Also hide for owners and current user
+                            final canDeleteBranch = !isCurrentUser && 
+                              !isUserBusinessOwner && // Don't show branch delete for business owners
+                              (_isBusinessOwner || (!isBranchBusinessOwner && !isBranchOwner));
+                            
                             return ListTile(
                               title: Text(branch.name),
                               subtitle: Text('${branch.location} • ${role.toUpperCase()}'),
-                              // Hide branch delete buttons for business owners
-                              trailing: (isUserBusinessOwner || isCurrentUser) 
-                                  ? null 
-                                  : IconButton(
-                                icon: const Icon(Icons.delete, color: Colors.red),
-                                onPressed: () {
-                                  showDialog(
-                                    context: context,
-                                    builder: (context) => AlertDialog(
-                                      title: const Text('Remove User'),
-                                      content: Text(
-                                        'Remove ${user.name} from ${branch.name}?',
-                                      ),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () => Navigator.pop(context),
-                                          child: const Text('Cancel'),
-                                        ),
-                                        ElevatedButton(
-                                          onPressed: () {
-                                            Navigator.pop(context);
+                              // Hide branch delete buttons for business owners, owners, and current user
+                              trailing: canDeleteBranch
+                                  ? IconButton(
+                                      icon: const Icon(Icons.delete, color: AppColors.error),
+                                      onPressed: () {
+                                        showDialog(
+                                          context: context,
+                                          builder: (context) => AlertDialog(
+                                            title: const Text('Remove User'),
+                                            content: Text(
+                                              'Remove ${user.name} from ${branch.name}?',
+                                            ),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () => Navigator.pop(context),
+                                                child: const Text('Cancel'),
+                                              ),
+                                              ElevatedButton(
+                                                onPressed: () {
+                                                  Navigator.pop(context);
                                                   _removeUserFromBranch(
                                                     branchUserId,
                                                     branch.id,
                                                     role,
                                                     user.id,
                                                   );
-                                          },
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: Colors.red,
+                                                },
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: AppColors.error,
+                                                ),
+                                                child: const Text('Remove'),
+                                              ),
+                                            ],
                                           ),
-                                          child: const Text('Remove'),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
+                                        );
+                                      },
                                       tooltip: 'Delete',
-                              ),
+                                    )
+                                  : null,
                             );
                           }).toList(),
                         ),

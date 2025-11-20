@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/app_colors.dart';
 import 'package:intl/intl.dart';
 
 class DateSelector extends StatefulWidget {
@@ -103,7 +104,7 @@ class _DateSelectorState extends State<DateSelector> {
         color: const Color(0xFF1E1E1E),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
+            color: AppColors.overlayDark,
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),

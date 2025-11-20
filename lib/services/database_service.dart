@@ -104,23 +104,45 @@ class DatabaseService {
     }
   }
 
-  Future<List<CreditExpense>> getCreditExpensesBySupplier(String supplierName, String businessId) async {
-    try {
-      // First get all branch IDs for this business
-      final branchesResponse = await _client
-          .from('branches')
-          .select('id')
-          .eq('business_id', businessId);
-      
-      final branchIds = (branchesResponse as List)
-          .map((b) => b['id'] as String)
+  Future<List<CreditExpense>> getCreditExpensesBySupplier(
+    String supplierName,
+    String businessId, {
+    List<String>? branchIds,
+    DateTime? startDate,
+    DateTime? endDate,
+    List<CreditExpenseStatus>? statuses,
+  }) async {
+    String formatDate(DateTime date) {
+      final onlyDate = DateTime(date.year, date.month, date.day);
+      return onlyDate.toIso8601String().split('T').first;
+    }
+
+    String buildInClause(List<String> values) {
+      final sanitized = values.map((value) => '"$value"').join(',');
+      return '($sanitized)';
+    }
+
+    List<String> statusFilters = [];
+    if (statuses != null && statuses.isNotEmpty) {
+      statusFilters = statuses
+          .map((status) => status == CreditExpenseStatus.paid ? 'paid' : 'unpaid')
+          .toSet()
           .toList();
-      
-      if (branchIds.isEmpty) {
+    }
+
+    Future<List<String>> resolveBranchIds() async {
+      if (branchIds != null && branchIds.isNotEmpty) {
+        return branchIds;
+      }
+      return _fetchBranchIdsForBusiness(businessId);
+    }
+
+    try {
+      final effectiveBranchIds = await resolveBranchIds();
+      if (effectiveBranchIds.isEmpty) {
         return [];
       }
 
-      // Get expenses with branch info
       var query = _client
           .from('credit_expenses')
           .select('''
@@ -132,17 +154,27 @@ class DatabaseService {
             )
           ''')
           .eq('supplier', supplierName);
-      
-      // Filter by branch IDs
-      if (branchIds.length == 1) {
-        query = query.eq('branch_id', branchIds[0]);
-      } else if (branchIds.length > 1) {
-        // Use OR conditions for multiple branches
-        query = query.or(branchIds.map((id) => 'branch_id.eq.$id').join(','));
+
+      if (effectiveBranchIds.length == 1) {
+        query = query.eq('branch_id', effectiveBranchIds.first);
       } else {
-        return [];
+        query = query.filter('branch_id', 'in', buildInClause(effectiveBranchIds));
       }
-      
+
+      if (startDate != null) {
+        query = query.gte('date', formatDate(startDate));
+      }
+      if (endDate != null) {
+        query = query.lte('date', formatDate(endDate));
+      }
+      if (statusFilters.isNotEmpty) {
+        if (statusFilters.length == 1) {
+          query = query.eq('status', statusFilters.first);
+        } else {
+          query = query.filter('status', 'in', buildInClause(statusFilters));
+        }
+      }
+
       final response = await query.order('date', ascending: false);
 
       return (response as List)
@@ -150,18 +182,9 @@ class DatabaseService {
           .toList();
     } catch (e) {
       debugPrint('Error fetching credit expenses by supplier: $e');
-      // Fallback to simple query without branch info
       try {
-        final branchesResponse = await _client
-            .from('branches')
-            .select('id')
-            .eq('business_id', businessId);
-        
-        final branchIds = (branchesResponse as List)
-            .map((b) => b['id'] as String)
-            .toList();
-        
-        if (branchIds.isEmpty) {
+        final effectiveBranchIds = await resolveBranchIds();
+        if (effectiveBranchIds.isEmpty) {
           return [];
         }
 
@@ -169,15 +192,27 @@ class DatabaseService {
             .from('credit_expenses')
             .select()
             .eq('supplier', supplierName);
-        
-        if (branchIds.length == 1) {
-          simpleQuery = simpleQuery.eq('branch_id', branchIds[0]);
-        } else if (branchIds.length > 1) {
-          simpleQuery = simpleQuery.or(branchIds.map((id) => 'branch_id.eq.$id').join(','));
+
+        if (effectiveBranchIds.length == 1) {
+          simpleQuery = simpleQuery.eq('branch_id', effectiveBranchIds.first);
         } else {
-          return [];
+          simpleQuery = simpleQuery.filter('branch_id', 'in', buildInClause(effectiveBranchIds));
         }
-        
+
+        if (startDate != null) {
+          simpleQuery = simpleQuery.gte('date', formatDate(startDate));
+        }
+        if (endDate != null) {
+          simpleQuery = simpleQuery.lte('date', formatDate(endDate));
+        }
+        if (statusFilters.isNotEmpty) {
+          if (statusFilters.length == 1) {
+            simpleQuery = simpleQuery.eq('status', statusFilters.first);
+          } else {
+            simpleQuery = simpleQuery.filter('status', 'in', buildInClause(statusFilters));
+          }
+        }
+
         final simpleResponse = await simpleQuery.order('date', ascending: false);
         return (simpleResponse as List)
             .map((json) => CreditExpense.fromJson(json))
@@ -216,6 +251,18 @@ class DatabaseService {
   }
 
   // Suppliers
+  Future<List<String>> _fetchBranchIdsForBusiness(String businessId) async {
+    final branchesResponse = await _client
+        .from('branches')
+        .select('id')
+        .eq('business_id', businessId);
+
+    return (branchesResponse as List)
+        .map((b) => b['id'] as String)
+        .where((id) => id.isNotEmpty)
+        .toList();
+  }
+
   Future<List<Supplier>> getSuppliers(String businessId) async {
     try {
       final response = await _client

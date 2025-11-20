@@ -11,9 +11,8 @@ import 'online_sales_screen.dart';
 import 'qr_payment_screen.dart';
 import 'due_screen.dart';
 import 'cash_closing_screen.dart';
-import 'owner_dashboard_screen.dart';
-import 'user_management_screen.dart';
-import 'login_screen.dart';
+import 'settings_screen.dart';
+import '../utils/app_colors.dart';
 
 // Renamed to FinancialEntryScreen - this is for daily financial operations
 class FinancialEntryScreen extends StatefulWidget {
@@ -63,67 +62,17 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
         ),
         elevation: 0,
         actions: [
-          if (_authService.canViewAllBranches())
-            IconButton(
-              icon: const Icon(Icons.dashboard),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const OwnerDashboardScreen(),
-                  ),
-                );
-              },
-              tooltip: 'Owner Dashboard',
-            ),
-          if (_authService.canManageUsers())
-            IconButton(
-              icon: const Icon(Icons.people),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const UserManagementScreen(),
-                  ),
-                );
-              },
-              tooltip: 'Manage Users',
-            ),
-          PopupMenuButton(
-            icon: const Icon(Icons.more_vert),
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                child: const Row(
-                  children: [
-                    Icon(Icons.person, size: 20),
-                    SizedBox(width: 8),
-                    Text('Profile'),
-                  ],
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const SettingsScreen(),
                 ),
-                onTap: () {
-                  // TODO: Show profile screen
-                },
-              ),
-              PopupMenuItem(
-                child: const Row(
-                  children: [
-                    Icon(Icons.logout, size: 20, color: Colors.red),
-                    SizedBox(width: 8),
-                    Text('Logout', style: TextStyle(color: Colors.red)),
-                  ],
-                ),
-                onTap: () async {
-                  await _authService.logout();
-                  if (context.mounted) {
-                    Navigator.of(context).pushReplacement(
-                      MaterialPageRoute(
-                        builder: (context) => const LoginScreen(),
-                      ),
-                    );
-                  }
-                },
-              ),
-            ],
+              );
+            },
+            tooltip: 'Settings',
           ),
         ],
       ),
@@ -141,15 +90,15 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
           if (!canView)
             Container(
               padding: const EdgeInsets.all(16),
-              color: Colors.orange.withValues(alpha: 0.2),
+              color: AppColors.warning.withValues(alpha: 0.2),
               child: Row(
                 children: [
-                  Icon(Icons.info_outline, color: Colors.orange.shade300),
+                  Icon(Icons.info_outline, color: AppColors.warning),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       'You can only view today and yesterday\'s data',
-                      style: TextStyle(color: Colors.orange.shade300),
+                      style: TextStyle(color: AppColors.warning),
                     ),
                   ),
                 ],
@@ -165,7 +114,7 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                     context,
                     'Credit Expense',
                     Icons.credit_card,
-                    Colors.amber,
+                    AppColors.warning,
                     canEdit
                         ? () => Navigator.push(
                               context,
@@ -183,7 +132,7 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                     context,
                     'Cash Daily Expense',
                     Icons.receipt_long,
-                    Colors.blue,
+                    AppColors.primary,
                     canEdit
                         ? () => Navigator.push(
                               context,
@@ -201,7 +150,7 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                     context,
                     'Cash Balance',
                     Icons.account_balance_wallet,
-                    Colors.green,
+                    AppColors.success,
                     canEdit
                         ? () => Navigator.push(
                               context,
@@ -219,7 +168,7 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                     context,
                     'Card',
                     Icons.credit_card,
-                    Colors.orange,
+                    AppColors.warning,
                     canEdit
                         ? () => Navigator.push(
                               context,
@@ -237,7 +186,7 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                     context,
                     'Online Sales',
                     Icons.shopping_cart,
-                    Colors.purple,
+                    AppColors.primary,
                     canEdit
                         ? () => Navigator.push(
                               context,
@@ -255,7 +204,7 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                     context,
                     'UPI',
                     Icons.qr_code,
-                    Colors.teal,
+                    AppColors.primaryLight,
                     canEdit
                         ? () => Navigator.push(
                               context,
@@ -273,7 +222,7 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                     context,
                     'Due',
                     Icons.pending_actions,
-                    Colors.red,
+                    AppColors.error,
                     canEdit
                         ? () => Navigator.push(
                               context,
@@ -336,7 +285,7 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: disabled ? Colors.grey[800]! : color.withValues(alpha: 0.5),
+                color: disabled ? AppColors.surfaceContainer : color.withValues(alpha: 0.5),
                 width: 1,
               ),
             ),
@@ -380,7 +329,7 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: Colors.blue.withValues(alpha: 0.3),
+          color: AppColors.primary.withValues(alpha: 0.3),
           width: 1,
         ),
       ),
@@ -392,10 +341,10 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.blue.withValues(alpha: 0.1),
+                  color: AppColors.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.store, color: Colors.blue, size: 24),
+                child: const Icon(Icons.store, color: AppColors.primary, size: 24),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -412,13 +361,13 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        Icon(Icons.location_on, size: 14, color: Colors.grey[400]),
+                        Icon(Icons.location_on, size: 14, color: AppColors.textSecondary),
                         const SizedBox(width: 4),
                         Text(
                           branch.location,
                           style: TextStyle(
                             fontSize: 14,
-                            color: Colors.grey[400],
+                            color: AppColors.textSecondary,
                           ),
                         ),
                       ],
@@ -430,8 +379,8 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: branch.status == BranchStatus.active
-                      ? Colors.green.withValues(alpha: 0.2)
-                      : Colors.grey.withValues(alpha: 0.2),
+                      ? AppColors.success.withValues(alpha: 0.2)
+                      : AppColors.textTertiary.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
@@ -440,8 +389,8 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                     color: branch.status == BranchStatus.active
-                        ? Colors.green
-                        : Colors.grey,
+                        ? AppColors.success
+                        : AppColors.textTertiary,
                   ),
                 ),
               ),

@@ -5,6 +5,7 @@ import '../models/user.dart' as models;
 import '../models/business.dart';
 import '../models/branch.dart';
 import 'dashboard_home_screen.dart';
+import '../utils/app_colors.dart';
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({super.key});
@@ -158,20 +159,60 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 
       // Step 3: Create business (check if user already has a business)
       Business business;
-      // Check if user is already a business owner
-      final existingBusinessOwnerResponse = await supabase
-          .from('business_owners')
-          .select('business_id, businesses(*)')
-          .eq('user_id', userId)
-          .limit(1);
-
-      final existingBusinessOwners = existingBusinessOwnerResponse as List;
-      if (existingBusinessOwners.isNotEmpty && existingBusinessOwners.first['businesses'] != null) {
-        // User already has a business, use the first one
-        business = Business.fromJson(existingBusinessOwners.first['businesses']);
+      // Check if user already owns all branches of a business (making them a business owner)
+      // Get all businesses
+      final allBusinessesResponse = await supabase
+          .from('businesses')
+          .select('id, name');
+      
+      Business? existingBusiness;
+      for (var biz in allBusinessesResponse as List) {
+        final businessId = biz['id'] as String;
+        
+        // Get all branches for this business
+        final branchesResponse = await supabase
+            .from('branches')
+            .select('id')
+            .eq('business_id', businessId);
+        
+        final branches = branchesResponse as List;
+        if (branches.isEmpty) continue;
+        
+        // Check if user is owner of all branches
+        bool isOwnerOfAllBranches = true;
+        for (var branch in branches) {
+          final branchId = branch['id'] as String;
+          final branchUser = await supabase
+              .from('branch_users')
+              .select()
+              .eq('branch_id', branchId)
+              .eq('user_id', userId)
+              .maybeSingle();
+          
+          if (branchUser == null) {
+            isOwnerOfAllBranches = false;
+            break;
+          }
+          
+          final role = branchUser['role']?.toString().toLowerCase();
+          if (role != 'owner' && role != 'business_owner') {
+            isOwnerOfAllBranches = false;
+            break;
+          }
+        }
+        
+        if (isOwnerOfAllBranches) {
+          existingBusiness = Business.fromJson(biz);
+          break;
+        }
+      }
+      
+      if (existingBusiness != null) {
+        // User already owns a business, use it
+        business = existingBusiness;
         debugPrint('Using existing business: ${business.name}');
       } else {
-        // Create new business (without owner_id)
+        // Create new business
         final businessResponse = await supabase
             .from('businesses')
             .insert({
@@ -181,15 +222,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
             .single();
 
         business = Business.fromJson(businessResponse);
-        
-        // Add user to business_owners table
-        await supabase
-            .from('business_owners')
-            .insert({
-              'business_id': business.id,
-              'user_id': userId,
-            });
-        debugPrint('Added user to business_owners table');
+        debugPrint('Created new business: ${business.name}');
       }
       
       // Ensure business is committed and session is active before branch creation
@@ -204,35 +237,20 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       // Small delay to ensure business is committed before branch creation
       await Future.delayed(const Duration(milliseconds: 300));
       
-      // Verify business exists and user is owner (for debugging)
-      final verifyBusinessOwner = await supabase
-          .from('business_owners')
-          .select()
-          .eq('business_id', business.id)
-          .eq('user_id', userId)
-          .maybeSingle();
-      
-      if (verifyBusinessOwner == null) {
-        debugPrint('ERROR: User is not a business owner');
-        debugPrint('Business ID: ${business.id}, User ID: $userId');
-        throw Exception('Business verification failed. Please try again.');
-      }
-      
-      debugPrint('Business verified: ${business.name}, User is business owner');
+      debugPrint('Business verified: ${business.name}');
 
       // Step 4: Create first branch (check if business already has branches)
-      Branch branch;
+      List<Branch> businessBranches = [];
       final existingBranchesResponse = await supabase
           .from('branches')
           .select()
           .eq('business_id', business.id)
-          .limit(1);
+          .order('created_at');
 
       final existingBranches = existingBranchesResponse as List;
       if (existingBranches.isNotEmpty) {
-        // Business already has a branch, use the first one
-        branch = Branch.fromJson(existingBranches.first);
-        debugPrint('Using existing branch: ${branch.name}');
+        businessBranches = existingBranches.map((b) => Branch.fromJson(b)).toList();
+        debugPrint('Using ${businessBranches.length} existing branch(es)');
       } else {
         // Create new branch
         // Double-check session before insert
@@ -269,14 +287,13 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                 'business_id': business.id,
                 'name': _branchNameController.text.trim(),
                 'location': _branchLocationController.text.trim(),
-                'manager_id': userId,
                 'status': 'active',
               })
               .select()
               .single();
 
-          branch = Branch.fromJson(branchResponse);
-          debugPrint('Branch created successfully: ${branch.name}');
+          businessBranches = [Branch.fromJson(branchResponse)];
+          debugPrint('Branch created successfully: ${businessBranches.first.name}');
         } catch (branchError) {
           debugPrint('Branch creation error: $branchError');
           debugPrint('Business ID: ${business.id}, User ID: $userId');
@@ -286,32 +303,24 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         }
       }
 
-      // Step 5: Assign user as owner to branch (check if already assigned)
-      final existingBranchUser = await supabase
-          .from('branch_users')
-          .select()
-          .eq('branch_id', branch.id)
-          .eq('user_id', userId)
-          .maybeSingle();
-
-      if (existingBranchUser == null) {
-        // User not assigned to branch, assign as owner
-        debugPrint('Assigning user to branch as owner...');
-        try {
-          await supabase.from('branch_users').insert({
-            'branch_id': branch.id,
-            'user_id': userId,
-            'role': 'owner',
-          });
-          debugPrint('User assigned to branch successfully');
-        } catch (branchUserError) {
-          debugPrint('Error assigning user to branch: $branchUserError');
-          // This is not critical - user can still access branch as business owner
-          // But log the error for debugging
-        }
-      } else {
-        debugPrint('User already assigned to branch with role: ${existingBranchUser['role']}');
+      // Ensure we have the latest branches list (in case new branch was created)
+      if (businessBranches.isEmpty) {
+        final refreshedBranches = await supabase
+            .from('branches')
+            .select()
+            .eq('business_id', business.id);
+        businessBranches = (refreshedBranches as List)
+            .map((b) => Branch.fromJson(b))
+            .toList();
       }
+
+      // Step 5: Assign user as business owner across all known branches
+      await _ensureBranchUserAssignments(
+        userId: userId,
+        businessId: business.id,
+        branches: businessBranches,
+        role: 'business_owner',
+      );
 
       // Step 6: Load user data and navigate
       final authService = AuthService();
@@ -320,14 +329,19 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         name: _nameController.text.trim(),
         phone: null,
         email: email,
-        role: models.UserRole.owner,
+        role: models.UserRole.businessOwner,
       );
 
       // Set user and ensure branch_users are loaded
-      await authService.setUser(user, [branch]);
-      
-      // Double-check: reload branch users to ensure they're loaded
-      await authService.refreshBranches();
+      if (businessBranches.isEmpty) {
+        // Fallback to refreshing branches if the list is still empty
+        await authService.setUser(user, []);
+        await authService.refreshBranches();
+      } else {
+        await authService.setUser(user, businessBranches);
+        // Double-check: reload branch users to ensure they're loaded
+        await authService.refreshBranches();
+      }
       
       // Refresh business owner status (important for canManageUsers to work)
       await authService.refreshBusinessOwnerStatus();
@@ -341,7 +355,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Registration successful!'),
-            backgroundColor: Colors.green,
+            backgroundColor: AppColors.success,
           ),
         );
 
@@ -407,7 +421,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(errorMessage),
-              backgroundColor: Colors.red,
+              backgroundColor: AppColors.error,
               duration: const Duration(seconds: 5),
             ),
           );
@@ -606,18 +620,18 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                     ),
                     const SizedBox(height: 16),
                     Card(
-                      color: Colors.blue.withValues(alpha: 0.1),
+                      color: AppColors.primary.withValues(alpha: 0.1),
                       child: Padding(
                         padding: const EdgeInsets.all(16),
                         child: Row(
                           children: [
-                            const Icon(Icons.info_outline, color: Colors.blue),
+                            const Icon(Icons.info_outline, color: AppColors.primary),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Text(
                                 'You will be set as the Owner of this business and branch. You can add more branches and users later.',
                                 style: TextStyle(
-                                  color: Colors.blue[100],
+                                  color: AppColors.primaryLight,
                                   fontSize: 12,
                                 ),
                               ),
@@ -679,6 +693,44 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
             _branchLocationController.text.isNotEmpty;
       default:
         return false;
+    }
+  }
+
+  Future<void> _ensureBranchUserAssignments({
+    required String userId,
+    required String businessId,
+    required List<Branch> branches,
+    String role = 'business_owner',
+  }) async {
+    if (branches.isEmpty) {
+      debugPrint(
+        'No local branches available for business $businessId when assigning $role. '
+        'Branch users will not be created.',
+      );
+      return;
+    }
+
+    final supabase = Supabase.instance.client;
+    for (final branch in branches) {
+      if (branch.id.isEmpty) {
+        debugPrint('Skipping branch assignment with empty ID for business $businessId');
+        continue;
+      }
+
+      try {
+        await supabase.from('branch_users').upsert(
+          {
+            'branch_id': branch.id,
+            'user_id': userId,
+            'business_id': businessId,
+            'role': role,
+          },
+          onConflict: 'branch_id,user_id',
+        );
+        debugPrint('Ensured $role assignment for branch ${branch.name} (${branch.id})');
+      } catch (e) {
+        debugPrint('Error ensuring $role assignment for branch ${branch.id}: $e');
+      }
     }
   }
 }

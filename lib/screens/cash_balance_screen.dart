@@ -34,6 +34,7 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
   };
 
   final Map<String, TextEditingController> _controllers = {};
+  final Map<String, FocusNode> _focusNodes = {};
   final DatabaseService _dbService = DatabaseService();
   final AuthService _authService = AuthService();
   bool _isLoading = false;
@@ -71,13 +72,15 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
           final value = denom.replaceAll('_coin', '');
           if (_coinCounts.containsKey(value)) {
             _coinCounts[value] = countValue;
-            _controllers['${value}_coin']?.text = countValue.toString();
+            _controllers['${value}_coin']?.text =
+                countValue == 0 ? '' : countValue.toString();
           }
         } else if (denom.endsWith('_note')) {
           final value = denom.replaceAll('_note', '');
           if (_noteCounts.containsKey(value)) {
             _noteCounts[value] = countValue;
-            _controllers['${value}_note']?.text = countValue.toString();
+            _controllers['${value}_note']?.text =
+                countValue == 0 ? '' : countValue.toString();
           }
         } else {
           // Legacy format - try to determine if it's coin or note
@@ -85,10 +88,12 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
           // Otherwise assign to the appropriate map
           if (_coinCounts.containsKey(denom) && !_noteCounts.containsKey(denom)) {
             _coinCounts[denom] = countValue;
-            _controllers['${denom}_coin']?.text = countValue.toString();
+            _controllers['${denom}_coin']?.text =
+                countValue == 0 ? '' : countValue.toString();
           } else if (_noteCounts.containsKey(denom) && !_coinCounts.containsKey(denom)) {
             _noteCounts[denom] = countValue;
-            _controllers['${denom}_note']?.text = countValue.toString();
+            _controllers['${denom}_note']?.text =
+                countValue == 0 ? '' : countValue.toString();
           }
         }
       }
@@ -104,11 +109,25 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
   void _initializeControllers() {
     // Use unique keys for coins and notes to avoid conflicts
     for (var denom in _coinCounts.keys) {
-      _controllers['${denom}_coin'] = TextEditingController(text: '0');
+      _createControllerAndFocusNode('${denom}_coin');
     }
     for (var denom in _noteCounts.keys) {
-      _controllers['${denom}_note'] = TextEditingController(text: '0');
+      _createControllerAndFocusNode('${denom}_note');
     }
+  }
+
+  void _createControllerAndFocusNode(String key) {
+    final controller = TextEditingController();
+    final focusNode = FocusNode();
+    focusNode.addListener(() {
+      if (focusNode.hasFocus) {
+        Future.microtask(() {
+          controller.selection = TextSelection(baseOffset: 0, extentOffset: controller.text.length);
+        });
+      }
+    });
+    _controllers[key] = controller;
+    _focusNodes[key] = focusNode;
   }
 
   double _getTotalCoins() {
@@ -135,7 +154,7 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
       } else if (!isCoin && _noteCounts.containsKey(denomination)) {
         _noteCounts[denomination] = count;
       }
-      _controllers[controllerKey]?.text = count.toString();
+      _controllers[controllerKey]?.text = count == 0 ? '' : count.toString();
     });
   }
 
@@ -235,6 +254,17 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
         });
       }
     }
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _controllers.values) {
+      controller.dispose();
+    }
+    for (final node in _focusNodes.values) {
+      node.dispose();
+    }
+    super.dispose();
   }
 
   @override
@@ -359,10 +389,11 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
             Expanded(
               child: TextField(
                 controller: _controllers[controllerKey],
+                focusNode: _focusNodes[controllerKey],
                 textAlign: TextAlign.center,
-                decoration: InputDecoration(
-                  hintText: 'Count',
-                  border: const OutlineInputBorder(),
+                decoration: const InputDecoration(
+                  hintText: '0',
+                  border: OutlineInputBorder(),
                   isDense: true,
                 ),
                 keyboardType: TextInputType.number,
@@ -415,14 +446,6 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
         ),
       ],
     );
-  }
-
-  @override
-  void dispose() {
-    for (var controller in _controllers.values) {
-      controller.dispose();
-    }
-    super.dispose();
   }
 }
 

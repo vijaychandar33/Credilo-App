@@ -5,7 +5,6 @@ class Branch {
   final String businessId;
   final String name;
   final String location;
-  final String? managerId;
   final BranchStatus status;
   final DateTime? createdAt;
 
@@ -14,7 +13,6 @@ class Branch {
     required this.businessId,
     required this.name,
     required this.location,
-    this.managerId,
     required this.status,
     this.createdAt,
   });
@@ -25,7 +23,6 @@ class Branch {
       'business_id': businessId,
       'name': name,
       'location': location,
-      'manager_id': managerId,
       'status': status == BranchStatus.active ? 'active' : 'inactive',
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
     };
@@ -37,7 +34,6 @@ class Branch {
       businessId: json['business_id']?.toString() ?? '',
       name: json['name'] ?? '',
       location: json['location'] ?? '',
-      managerId: json['manager_id']?.toString(),
       status: json['status'] == 'active'
           ? BranchStatus.active
           : BranchStatus.inactive,

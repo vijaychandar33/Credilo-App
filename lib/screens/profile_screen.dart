@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/app_colors.dart';
 import '../models/user.dart';
 import '../services/auth_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -101,6 +102,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final role = _authService.currentRole;
     if (role == null) return 'No role assigned';
     switch (role) {
+      case UserRole.businessOwner:
+        return 'Business Owner';
       case UserRole.owner:
         return 'Owner';
       case UserRole.manager:
@@ -173,7 +176,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 user.email!,
                                 style: TextStyle(
                                   fontSize: 14,
-                                  color: Colors.grey[600],
+                                  color: AppColors.textTertiary,
                                 ),
                               ),
                             ],
@@ -332,7 +335,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildInfoRow(String label, String value, IconData icon) {
     return Row(
       children: [
-        Icon(icon, size: 20, color: Colors.grey[600]),
+        Icon(icon, size: 20, color: AppColors.textTertiary),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -342,7 +345,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 label,
                 style: TextStyle(
                   fontSize: 12,
-                  color: Colors.grey[600],
+                  color: AppColors.textTertiary,
                 ),
               ),
               const SizedBox(height: 4),
