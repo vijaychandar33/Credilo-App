@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../models/cash_closing.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
+import '../utils/currency_formatter.dart';
 
 class CashClosingScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -63,7 +64,9 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
       final cashCounts = await _dbService.getCashCounts(widget.selectedDate, branch.id);
       _countedCash = cashCounts.fold(0.0, (sum, count) => sum + count.total);
       countedCashController.text = _countedCash.toStringAsFixed(2);
-      debugPrint('Cash balance from cash counts: ₹${_countedCash.toStringAsFixed(2)}');
+      debugPrint(
+        'Cash balance from cash counts: ${CurrencyFormatter.format(_countedCash)}',
+      );
 
       // Calculate Total Cash Sales: (Cash in Hand - Opening Balance) + Total Cash Expenses
       _totalCashSales = (_countedCash - _opening) + _totalExpenses;
@@ -168,7 +171,10 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
         appBar: AppBar(
           title: Text('Cash Closing - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
         ),
-        body: const Center(child: CircularProgressIndicator()),
+        body: const SafeArea(
+          top: false,
+          child: Center(child: CircularProgressIndicator()),
+        ),
       );
     }
 
@@ -176,24 +182,26 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
       appBar: AppBar(
         title: Text('Cash Closing - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildField(
-              'Opening Balance',
-              openingController,
-              _opening,
-              (value) {
-                setState(() {
-                  _opening = value;
-                  _calculateNextOpening();
-                });
-              },
-              isEditable: false,
-              info: 'From previous day\'s closing balance',
-            ),
+      body: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildField(
+                'Opening Balance',
+                openingController,
+                _opening,
+                (value) {
+                  setState(() {
+                    _opening = value;
+                    _calculateNextOpening();
+                  });
+                },
+                isEditable: false,
+                info: 'From previous day\'s closing balance',
+              ),
             const SizedBox(height: 16),
             _buildField(
               'Total Cash Sales',
@@ -266,7 +274,7 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '₹${_getNextOpening().toStringAsFixed(2)}',
+                      CurrencyFormatter.format(_getNextOpening()),
                       style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
@@ -294,7 +302,8 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
                     : const Text('Save Closing', style: TextStyle(fontSize: 16)),
               ),
             ),
-          ],
+            ],
+          ),
         ),
       ),
     );

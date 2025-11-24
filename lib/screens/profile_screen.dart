@@ -133,15 +133,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
         ],
       ),
-      body: user == null
-          ? const Center(child: Text('User not found'))
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
+      body: SafeArea(
+        top: false,
+        child: user == null
+            ? const Center(child: Text('User not found'))
+            : SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
                     // Profile Header
                     Card(
                       child: Padding(
@@ -325,10 +327,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ],
                       ),
                     ],
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
+      ),
     );
   }
 

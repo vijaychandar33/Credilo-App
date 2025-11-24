@@ -76,7 +76,9 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
           ),
         ],
       ),
-      body: Column(
+      body: SafeArea(
+        top: false,
+        child: Column(
         children: [
           // Branch Details Card
           if (_authService.currentBranch != null)
@@ -258,6 +260,7 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
             ),
           ),
         ],
+      ),
       ),
     );
   }

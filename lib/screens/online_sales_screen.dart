@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../models/online_sale.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
+import '../utils/currency_formatter.dart';
 
 class OnlineSalesScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -21,6 +22,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
   final AuthService _authService = AuthService();
   bool _isSaving = false;
   bool _isLoading = false;
+  bool _showValidationErrors = false;
   final List<String> _existingSaleIds = []; // Track existing sale IDs
   final List<String> _platforms = [
     'Swiggy',
@@ -135,6 +137,30 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
       return;
     }
 
+    bool hasValidationErrors = false;
+    for (var saleRow in _sales) {
+      if (saleRow.gross != null && saleRow.gross! > 0) {
+        final missingPlatform = saleRow.platform == null || saleRow.platform!.isEmpty;
+        if (missingPlatform) {
+          hasValidationErrors = true;
+        }
+      }
+    }
+
+    if (hasValidationErrors) {
+      setState(() {
+        _showValidationErrors = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Fill all required fields to save')),
+      );
+      return;
+    } else if (_showValidationErrors) {
+      setState(() {
+        _showValidationErrors = false;
+      });
+    }
+
     setState(() {
       _isSaving = true;
     });
@@ -232,58 +258,61 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
               },
             ),
           ),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.overlay,
-                  blurRadius: 4,
-                  offset: const Offset(0, -2),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Total Online Sales:',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      '₹${_getTotalSales().toStringAsFixed(2)}',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _isSaving ? null : _save,
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                    child: _isSaving
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Save', style: TextStyle(fontSize: 16)),
+          SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.overlay,
+                    blurRadius: 4,
+                    offset: const Offset(0, -2),
                   ),
-                ),
-              ],
+                ],
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Total Online Sales:',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        CurrencyFormatter.format(_getTotalSales()),
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _isSaving ? null : _save,
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: _isSaving
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('Save', style: TextStyle(fontSize: 16)),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -293,6 +322,10 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
 
   Widget _buildSaleRow(int index) {
     final sale = _sales[index];
+    final requiresFields = sale.gross != null && sale.gross! > 0;
+    final showPlatformError = _showValidationErrors &&
+        requiresFields &&
+        (sale.platform == null || sale.platform!.isEmpty);
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -305,10 +338,11 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
                 Expanded(
                   child: DropdownButtonFormField<String>(
                     initialValue: sale.platform,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Platform',
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
                       isDense: true,
+                      errorText: showPlatformError ? 'Select platform' : null,
                     ),
                     items: _platforms.map((platform) {
                       return DropdownMenuItem(value: platform, child: Text(platform));

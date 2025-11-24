@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../models/qr_payment.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
+import '../utils/currency_formatter.dart';
 
 class QrPaymentScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -21,6 +22,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
   final AuthService _authService = AuthService();
   bool _isSaving = false;
   bool _isLoading = false;
+  bool _showValidationErrors = false;
   final List<String> _existingPaymentIds = []; // Track existing payment IDs
   final List<String> _providers = [
     'Paytm',
@@ -128,6 +130,30 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
         const SnackBar(content: Text('Please add at least one payment with amount')),
       );
       return;
+    }
+
+    bool hasValidationErrors = false;
+    for (var paymentRow in _payments) {
+      if (paymentRow.amount != null && paymentRow.amount! > 0) {
+        final missingProvider = paymentRow.provider == null || paymentRow.provider!.isEmpty;
+        if (missingProvider) {
+          hasValidationErrors = true;
+        }
+      }
+    }
+
+    if (hasValidationErrors) {
+      setState(() {
+        _showValidationErrors = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Fill all required fields to save')),
+      );
+      return;
+    } else if (_showValidationErrors) {
+      setState(() {
+        _showValidationErrors = false;
+      });
     }
 
     setState(() {
@@ -262,58 +288,61 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
               },
             ),
           ),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.overlay,
-                  blurRadius: 4,
-                  offset: const Offset(0, -2),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Total UPI Payments:',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      '₹${_getTotalPayments().toStringAsFixed(2)}',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _isSaving ? null : _save,
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                    child: _isSaving
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Save', style: TextStyle(fontSize: 16)),
+          SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.overlay,
+                    blurRadius: 4,
+                    offset: const Offset(0, -2),
                   ),
-                ),
-              ],
+                ],
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Total UPI Payments:',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        CurrencyFormatter.format(_getTotalPayments()),
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _isSaving ? null : _save,
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: _isSaving
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('Save', style: TextStyle(fontSize: 16)),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -323,6 +352,10 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
 
   Widget _buildPaymentRow(int index) {
     final payment = _payments[index];
+    final requiresFields = payment.amount != null && payment.amount! > 0;
+    final showProviderError = _showValidationErrors &&
+        requiresFields &&
+        (payment.provider == null || payment.provider!.isEmpty);
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -335,10 +368,11 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                 Expanded(
                   child: DropdownButtonFormField<String>(
                     initialValue: payment.provider,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Payment Provider',
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
                       isDense: true,
+                      errorText: showProviderError ? 'Select provider' : null,
                     ),
                     items: _providers.map((provider) {
                       return DropdownMenuItem(value: provider, child: Text(provider));

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../utils/app_colors.dart';
+import '../utils/currency_formatter.dart';
 import 'package:intl/intl.dart';
 import '../models/credit_expense.dart';
 import '../models/supplier.dart';
@@ -142,7 +143,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Amount: ₹${expense.amount.toStringAsFixed(2)}',
+                  'Amount: ${CurrencyFormatter.format(expense.amount)}',
                   style: const TextStyle(fontSize: 14),
                 ),
                 const SizedBox(height: 16),
@@ -350,7 +351,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                             ),
                           ),
                           Text(
-                            '₹${totalUnpaid.toStringAsFixed(2)}',
+                            CurrencyFormatter.format(totalUnpaid),
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
@@ -372,7 +373,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                               ),
                             ),
                             Text(
-                              '₹${_getSelectedTotal().toStringAsFixed(2)}',
+                              CurrencyFormatter.format(_getSelectedTotal()),
                               style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
@@ -450,7 +451,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                                                   ),
                                                 ),
                                                 Text(
-                                                  '₹${expense.amount.toStringAsFixed(2)}',
+                                                  CurrencyFormatter.format(expense.amount),
                                                   style: TextStyle(
                                                     fontSize: 18,
                                                     fontWeight: FontWeight.bold,
@@ -544,32 +545,35 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                 ),
                 // Action Button
                 if (_selectedIds.isNotEmpty)
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.overlay,
-                          blurRadius: 4,
-                          offset: const Offset(0, -2),
+                  SafeArea(
+                    top: false,
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surface,
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.overlay,
+                            blurRadius: 4,
+                            offset: const Offset(0, -2),
+                          ),
+                        ],
+                      ),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _isUpdating ? null : _markAsPaid,
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                          ),
+                          child: _isUpdating
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Text('Mark Selected as Paid', style: TextStyle(fontSize: 16)),
                         ),
-                      ],
-                    ),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: _isUpdating ? null : _markAsPaid,
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                        ),
-                        child: _isUpdating
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Text('Mark Selected as Paid', style: TextStyle(fontSize: 16)),
                       ),
                     ),
                   ),

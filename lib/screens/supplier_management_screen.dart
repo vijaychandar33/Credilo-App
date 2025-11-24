@@ -6,6 +6,7 @@ import '../models/supplier.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../utils/app_colors.dart';
+import '../utils/currency_formatter.dart';
 import '../utils/date_range_utils.dart';
 import 'supplier_detail_screen.dart';
 import 'supplier_edit_screen.dart';
@@ -72,14 +73,6 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
     return [];
   }
 
-  DateRangeSelection _getDateRangeSelection() {
-    return resolveDateRange(
-      _selectedRangeOption,
-      customStartDate: _customStartDate,
-      customEndDate: _customEndDate,
-    );
-  }
-
   Future<void> _loadSuppliers() async {
     setState(() {
       _isLoading = true;
@@ -98,9 +91,8 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
 
       final suppliers = await _dbService.getSuppliers(branch.businessId);
       final activeBranchIds = _getActiveBranchIds();
-      final range = _getDateRangeSelection();
       final selectedStatuses = _selectedStatuses.isEmpty
-          ? CreditExpenseStatus.values.toList()
+          ? [CreditExpenseStatus.unpaid]
           : _selectedStatuses.toList();
       
       // Calculate total unpaid for each supplier
@@ -111,8 +103,6 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
           supplier.name,
           branch.businessId,
           branchIds: activeBranchIds,
-          startDate: range.startDate,
-          endDate: range.endDate,
           statuses: selectedStatuses,
         );
         final filteredTotal = expenses.fold(0.0, (sum, e) => sum + e.amount);
@@ -562,26 +552,18 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
                         ),
                       ),
                       Text(
-                        '₹${totalRemaining.toStringAsFixed(2)}',
+                        CurrencyFormatter.format(totalRemaining),
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
-                          color: totalRemaining > 0
-                              ? (_selectedStatuses.length == 1 &&
-                                      _selectedStatuses.contains(CreditExpenseStatus.paid)
-                                  ? AppColors.success
-                                  : AppColors.warning)
-                              : AppColors.success,
+                          color: totalRemaining > 0 ? AppColors.warning : AppColors.success,
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    _selectedStatuses.length == 1 &&
-                            _selectedStatuses.contains(CreditExpenseStatus.paid)
-                        ? 'Total Paid'
-                        : 'Total Remaining',
+                  const Text(
+                    'Pending Amount',
                     style: TextStyle(
                       fontSize: 12,
                       color: AppColors.textTertiary,
@@ -625,14 +607,7 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
     );
   }
 
-  String _totalLabel() {
-    if (_selectedStatuses.length == 1) {
-      return _selectedStatuses.contains(CreditExpenseStatus.paid)
-          ? 'Total Paid'
-          : 'Total Remaining';
-    }
-    return 'Total (All Statuses)';
-  }
+  String _totalLabel() => 'Total Pending';
 
   Widget _buildTotalFooter() {
     final theme = Theme.of(context);
@@ -663,14 +638,11 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
             ),
             Text(
-              '₹${_totalFilteredAmount.toStringAsFixed(2)}',
+              CurrencyFormatter.format(_totalFilteredAmount),
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
-                color: _selectedStatuses.length == 1 &&
-                        _selectedStatuses.contains(CreditExpenseStatus.paid)
-                    ? AppColors.success
-                    : AppColors.warning,
+                color: _totalFilteredAmount > 0 ? AppColors.warning : AppColors.success,
               ),
             ),
           ],

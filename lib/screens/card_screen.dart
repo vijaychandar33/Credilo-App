@@ -6,6 +6,7 @@ import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import 'card_machine_management_screen.dart';
 import '../utils/app_colors.dart';
+import '../utils/currency_formatter.dart';
 
 class CardScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -23,6 +24,7 @@ class _CardScreenState extends State<CardScreen> {
   final AuthService _authService = AuthService();
   bool _isSaving = false;
   bool _isLoading = false;
+  bool _showValidationErrors = false;
   final List<String> _existingSaleIds = []; // Track existing sale IDs
 
   @override
@@ -191,6 +193,30 @@ class _CardScreenState extends State<CardScreen> {
       return;
     }
 
+    bool hasValidationErrors = false;
+    for (var saleRow in _sales) {
+      if (saleRow.amount != null && saleRow.amount! > 0) {
+        final missingMachine = saleRow.selectedMachineId == null || saleRow.selectedMachineId!.isEmpty;
+        if (missingMachine) {
+          hasValidationErrors = true;
+        }
+      }
+    }
+
+    if (hasValidationErrors) {
+      setState(() {
+        _showValidationErrors = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Fill all required fields to save')),
+      );
+      return;
+    } else if (_showValidationErrors) {
+      setState(() {
+        _showValidationErrors = false;
+      });
+    }
+
     setState(() {
       _isSaving = true;
     });
@@ -314,58 +340,61 @@ class _CardScreenState extends State<CardScreen> {
               },
             ),
           ),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.overlay,
-                  blurRadius: 4,
-                  offset: const Offset(0, -2),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Total Card Sales:',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      '₹${_getTotalSales().toStringAsFixed(2)}',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _isSaving ? null : _save,
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                    child: _isSaving
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Save', style: TextStyle(fontSize: 16)),
+            SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.overlay,
+                    blurRadius: 4,
+                    offset: const Offset(0, -2),
                   ),
-                ),
-              ],
+                ],
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Total Card Sales:',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        CurrencyFormatter.format(_getTotalSales()),
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _isSaving ? null : _save,
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: _isSaving
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('Save', style: TextStyle(fontSize: 16)),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -375,6 +404,10 @@ class _CardScreenState extends State<CardScreen> {
 
   Widget _buildSaleRow(int index) {
     final sale = _sales[index];
+    final requiresFields = sale.amount != null && sale.amount! > 0;
+    final showMachineError = _showValidationErrors &&
+        requiresFields &&
+        (sale.selectedMachineId == null || sale.selectedMachineId!.isEmpty);
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -387,19 +420,21 @@ class _CardScreenState extends State<CardScreen> {
                 Expanded(
                   child: sale.isMachineLocked
                       ? InputDecorator(
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'Machine',
-                            border: OutlineInputBorder(),
+                            border: const OutlineInputBorder(),
                             isDense: true,
+                            errorText: showMachineError ? 'Select machine' : null,
                           ),
                           child: Text(sale.machineLabel ?? 'Machine'),
                         )
                       : DropdownButtonFormField<String>(
                           initialValue: sale.selectedMachineId,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'Machine',
-                            border: OutlineInputBorder(),
+                            border: const OutlineInputBorder(),
                             isDense: true,
+                            errorText: showMachineError ? 'Select machine' : null,
                           ),
                           items: [
                             const DropdownMenuItem(

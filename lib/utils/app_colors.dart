@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 
 /// Professional minimal color palette for the app
 class AppColors {
-  // Primary colors - Deep professional blue
-  static const Color primary = Color(0xFF1E40AF); // Deep blue
-  static const Color primaryLight = Color(0xFF3B82F6); // Lighter blue for accents
-  static const Color primaryDark = Color(0xFF1E3A8A); // Darker blue
+  // Primary colors - Soft purple palette for dark mode contrast
+  static const Color primary = Color(0xFF9D4EDD); // Vibrant violet
+  static const Color primaryLight = Color(0xFFC77DFF); // Lighter purple for accents
+  static const Color primaryDark = Color(0xFF7B2CBF); // Deeper purple
   
   // Neutral colors
   static const Color background = Color(0xFF000000); // Pure black

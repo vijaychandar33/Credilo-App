@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../models/cash_count.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
+import '../utils/currency_formatter.dart';
 
 class CashBalanceScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -297,47 +298,50 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
               ),
             ),
           ),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.1),
-                  blurRadius: 4,
-                  offset: const Offset(0, -2),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                _buildSummaryRow('Total Coins', _getTotalCoins()),
-                const SizedBox(height: 8),
-                _buildSummaryRow('Total Notes', _getTotalNotes()),
-                const Divider(),
-                _buildSummaryRow(
-                  'Total Cash in Hand',
-                  _getTotalCash(),
-                  isTotal: true,
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: (_isLoading || _isSaving) ? null : _save,
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                    child: _isSaving
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Save', style: TextStyle(fontSize: 16)),
+          SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.1),
+                    blurRadius: 4,
+                    offset: const Offset(0, -2),
                   ),
-                ),
-              ],
+                ],
+              ),
+              child: Column(
+                children: [
+                  _buildSummaryRow('Total Coins', _getTotalCoins()),
+                  const SizedBox(height: 8),
+                  _buildSummaryRow('Total Notes', _getTotalNotes()),
+                  const Divider(),
+                  _buildSummaryRow(
+                    'Total Cash in Hand',
+                    _getTotalCash(),
+                    isTotal: true,
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: (_isLoading || _isSaving) ? null : _save,
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: _isSaving
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('Save', style: TextStyle(fontSize: 16)),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -374,7 +378,10 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
             SizedBox(
               width: 60,
               child: Text(
-                '₹$denomination',
+                CurrencyFormatter.format(
+                  int.parse(denomination),
+                  decimalDigits: 0,
+                ),
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -409,7 +416,7 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
             SizedBox(
               width: 100,
               child: Text(
-                '₹${value.toStringAsFixed(0)}',
+                CurrencyFormatter.format(value, decimalDigits: 0),
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
@@ -435,7 +442,7 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
           ),
         ),
         Text(
-          '₹${amount.toStringAsFixed(2)}',
+          CurrencyFormatter.format(amount),
           style: TextStyle(
             fontSize: isTotal ? 20 : 16,
             fontWeight: FontWeight.bold,

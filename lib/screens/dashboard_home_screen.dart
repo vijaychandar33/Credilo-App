@@ -9,6 +9,7 @@ import 'add_branch_screen.dart';
 import 'settings_screen.dart';
 import 'supplier_management_screen.dart';
 import '../utils/app_colors.dart';
+import '../utils/currency_formatter.dart';
 
 class DashboardHomeScreen extends StatefulWidget {
   const DashboardHomeScreen({super.key});
@@ -192,32 +193,35 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _loadDashboardData,
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Branch Management - Show for all users, but with different options
-                    _buildBranchManagement(branches, isBusinessOwner),
-                    const SizedBox(height: 16),
+      body: SafeArea(
+        top: false,
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : RefreshIndicator(
+                onRefresh: _loadDashboardData,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Branch Management - Show for all users, but with different options
+                      _buildBranchManagement(branches, isBusinessOwner),
+                      const SizedBox(height: 16),
 
-                    // Quick Stats
-                    _buildQuickStats(),
-                    const SizedBox(height: 16),
+                      // Quick Stats
+                      _buildQuickStats(),
+                      const SizedBox(height: 16),
 
-                    // Today's Summary
-                    if (_todayStats != null) ...[
-                      _buildTodaySummary(),
+                      // Today's Summary
+                      if (_todayStats != null) ...[
+                        _buildTodaySummary(),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
-            ),
+      ),
     );
   }
 
@@ -257,7 +261,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
               children: [
                 Icon(icon, color: color, size: 24),
                 Text(
-                  '₹${value.toStringAsFixed(0)}',
+                  CurrencyFormatter.format(value, decimalDigits: 0),
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
@@ -320,7 +324,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
             style: const TextStyle(fontSize: 14),
           ),
           Text(
-            '₹${value.toStringAsFixed(2)}',
+            CurrencyFormatter.format(value),
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,

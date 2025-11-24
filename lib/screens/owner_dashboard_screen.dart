@@ -5,6 +5,7 @@ import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../models/due.dart';
 import '../utils/app_colors.dart';
+import '../utils/currency_formatter.dart';
 import '../utils/date_range_utils.dart';
 
 class OwnerDashboardScreen extends StatefulWidget {
@@ -383,60 +384,63 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
           ],
         ),
       ),
-      body: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: _availableBranches.isEmpty ? null : _showBranchSelectionSheet,
-                    child: InputDecorator(
-                      decoration: InputDecoration(
-                        labelText: 'Branches',
-                        border: const OutlineInputBorder(),
-                        isDense: true,
-                        contentPadding:
-                            const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        suffixIcon: Icon(
-                          Icons.arrow_drop_down,
-                          color: _availableBranches.isEmpty
-                              ? AppColors.textSecondary
-                              : AppColors.textPrimary,
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _availableBranches.isEmpty ? null : _showBranchSelectionSheet,
+                      child: InputDecorator(
+                        decoration: InputDecoration(
+                          labelText: 'Branches',
+                          border: const OutlineInputBorder(),
+                          isDense: true,
+                          contentPadding:
+                              const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          suffixIcon: Icon(
+                            Icons.arrow_drop_down,
+                            color: _availableBranches.isEmpty
+                                ? AppColors.textSecondary
+                                : AppColors.textPrimary,
+                          ),
                         ),
-                      ),
-                      child: Text(
-                        branchLabel,
-                        style: TextStyle(
-                          color: _availableBranches.isEmpty
-                              ? AppColors.textSecondary
-                              : AppColors.textPrimary,
+                        child: Text(
+                          branchLabel,
+                          style: TextStyle(
+                            color: _availableBranches.isEmpty
+                                ? AppColors.textSecondary
+                                : AppColors.textPrimary,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 1,
-                  child: _buildDateRangeSelector(),
-                ),
-              ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 1,
+                    child: _buildDateRangeSelector(),
+                  ),
+                ],
+              ),
             ),
-          ),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildOverviewTab(),
-                _buildDueSettlementsTab(),
-              ],
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildOverviewTab(),
+                  _buildDueSettlementsTab(),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -447,7 +451,6 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
     }
 
     final data = _overviewData ?? {};
-    final format = NumberFormat.currency(symbol: '₹', decimalDigits: 2);
     
     // Calculate totals
     final totalSalesAmount = (data['totalSales'] ?? 0.0) as double;
@@ -464,35 +467,35 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
           const SizedBox(height: 8),
           _buildSummaryCard(
             'Total Cash Sales',
-            format.format(data['totalCashSales'] ?? 0.0),
+            CurrencyFormatter.format(data['totalCashSales'] ?? 0.0),
             Icons.money,
             AppColors.textPrimary,
           ),
           const SizedBox(height: 12),
           _buildSummaryCard(
             'Card Sales',
-            format.format(data['totalCardSales'] ?? 0.0),
+            CurrencyFormatter.format(data['totalCardSales'] ?? 0.0),
             Icons.credit_card,
             AppColors.textPrimary,
           ),
           const SizedBox(height: 12),
           _buildSummaryCard(
             'Online Sales',
-            format.format(data['totalOnlineSales'] ?? 0.0),
+            CurrencyFormatter.format(data['totalOnlineSales'] ?? 0.0),
             Icons.shopping_cart,
             AppColors.textPrimary,
           ),
           const SizedBox(height: 12),
           _buildSummaryCard(
             'UPI Payments',
-            format.format(data['totalQrPayments'] ?? 0.0),
+            CurrencyFormatter.format(data['totalQrPayments'] ?? 0.0),
             Icons.qr_code,
             AppColors.textPrimary,
           ),
           const SizedBox(height: 12),
           _buildTotalCard(
             'Total Sales',
-            format.format(totalSalesAmount),
+            CurrencyFormatter.format(totalSalesAmount),
             Icons.trending_up,
             AppColors.success,
           ),
@@ -502,21 +505,21 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
           const SizedBox(height: 8),
           _buildSummaryCard(
             'Total Cash Expenses',
-            format.format(data['totalExpenses'] ?? 0.0),
+            CurrencyFormatter.format(data['totalExpenses'] ?? 0.0),
             Icons.receipt_long,
             AppColors.textPrimary,
           ),
           const SizedBox(height: 12),
           _buildSummaryCard(
             'Total Credit Expenses',
-            format.format(data['totalCreditExpenses'] ?? 0.0),
+            CurrencyFormatter.format(data['totalCreditExpenses'] ?? 0.0),
             Icons.credit_card_outlined,
             AppColors.textPrimary,
           ),
           const SizedBox(height: 12),
           _buildTotalCard(
             'Total Expenses',
-            format.format(totalExpensesAmount),
+            CurrencyFormatter.format(totalExpensesAmount),
             Icons.account_balance,
             AppColors.error,
           ),
@@ -526,14 +529,14 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
           const SizedBox(height: 8),
           _buildSummaryCard(
             'Total Due Amounts',
-            format.format(data['totalDues'] ?? 0.0),
+            CurrencyFormatter.format(data['totalDues'] ?? 0.0),
             Icons.pending_actions,
             AppColors.warning,
           ),
           const SizedBox(height: 12),
           _buildSummaryCard(
             'Total Closing Cash',
-            format.format(data['totalClosingCash'] ?? 0.0),
+            CurrencyFormatter.format(data['totalClosingCash'] ?? 0.0),
             Icons.account_balance_wallet,
             AppColors.primary,
           ),
@@ -550,7 +553,6 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
     final dues = _duesData ?? [];
     final receivables = dues.where((d) => d.type == DueType.receivable).toList();
     final payables = dues.where((d) => d.type == DueType.payable).toList();
-    final format = NumberFormat.currency(symbol: '₹', decimalDigits: 0);
 
     String getStatusText(DueStatus status) {
       switch (status) {
@@ -590,7 +592,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                   else
                     ...receivables.map((due) => _buildDueRow(
                       due.party,
-                      format.format(due.amount),
+                      CurrencyFormatter.format(due.amount, decimalDigits: 0),
                       getStatusText(due.status),
                     )),
                 ],
@@ -620,7 +622,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                   else
                     ...payables.map((due) => _buildDueRow(
                       due.party,
-                      format.format(due.amount),
+                      CurrencyFormatter.format(due.amount, decimalDigits: 0),
                       getStatusText(due.status),
                     )),
                 ],
