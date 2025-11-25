@@ -25,7 +25,7 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
   Map<String, double> _supplierTotals = {}; // supplier name -> total unpaid
   List<Branch> _availableBranches = [];
   Set<String> _selectedBranchIds = {};
-  DateRangeOption _selectedRangeOption = DateRangeOption.today;
+  DateRangeOption _selectedRangeOption = DateRangeOption.allTime;
   DateTime? _customStartDate;
   DateTime? _customEndDate;
   final Set<CreditExpenseStatus> _selectedStatuses = {};
@@ -95,6 +95,13 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
           ? [CreditExpenseStatus.unpaid]
           : _selectedStatuses.toList();
       
+      // Get date range
+      final dateRange = resolveDateRange(
+        _selectedRangeOption,
+        customStartDate: _customStartDate,
+        customEndDate: _customEndDate,
+      );
+
       // Calculate total unpaid for each supplier
       Map<String, double> totals = {};
       double aggregate = 0.0;
@@ -103,6 +110,8 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
           supplier.name,
           branch.businessId,
           branchIds: activeBranchIds,
+          startDate: dateRange?.startDate,
+          endDate: dateRange?.endDate,
           statuses: selectedStatuses,
         );
         final filteredTotal = expenses.fold(0.0, (sum, e) => sum + e.amount);
@@ -365,6 +374,8 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
 
   String _dateRangeLabel(DateRangeOption option) {
     switch (option) {
+      case DateRangeOption.allTime:
+        return 'All Time';
       case DateRangeOption.today:
         return 'Today';
       case DateRangeOption.yesterday:
@@ -398,6 +409,10 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
       isExpanded: true,
       items: const [
         DropdownMenuItem(
+          value: DateRangeOption.allTime,
+          child: Text('All Time'),
+        ),
+        DropdownMenuItem(
           value: DateRangeOption.today,
           child: Text('Today'),
         ),
@@ -424,6 +439,7 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
       ],
       selectedItemBuilder: (context) {
         return [
+          const Text('All Time', overflow: TextOverflow.ellipsis),
           const Text('Today', overflow: TextOverflow.ellipsis),
           const Text('Yesterday', overflow: TextOverflow.ellipsis),
           const Text('Last 7 Days', overflow: TextOverflow.ellipsis),

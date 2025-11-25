@@ -7,6 +7,8 @@ import '../models/due.dart';
 import '../utils/app_colors.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/date_range_utils.dart';
+import 'owner_dashboard_detail_screen.dart';
+import 'owner_dashboard_aggregated_detail_screen.dart';
 
 class OwnerDashboardScreen extends StatefulWidget {
   const OwnerDashboardScreen({super.key});
@@ -211,11 +213,20 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
   }
 
   DateRangeSelection _getDateRange() {
-    return resolveDateRange(
+    final result = resolveDateRange(
       _selectedRangeOption,
       customStartDate: _selectedStartDate,
       customEndDate: _selectedEndDate,
     );
+    // If null (all time), return today as default for owner dashboard
+    if (result == null) {
+      final today = DateTime.now();
+      return DateRangeSelection(
+        startDate: DateTime(today.year, today.month, today.day),
+        endDate: DateTime(today.year, today.month, today.day),
+      );
+    }
+    return result;
   }
 
   Future<void> _loadOverviewData() async {
@@ -456,6 +467,10 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
     final totalSalesAmount = (data['totalSales'] ?? 0.0) as double;
     final totalExpensesAmount = ((data['totalExpenses'] ?? 0.0) as double) + 
                                  ((data['totalCreditExpenses'] ?? 0.0) as double);
+    final totalProfit = totalSalesAmount - totalExpensesAmount;
+    final profitPercentage = totalSalesAmount > 0 
+        ? (totalProfit / totalSalesAmount) * 100 
+        : 0.0;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -465,63 +480,80 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
           // Sales Section
           _buildSectionHeader('Sales'),
           const SizedBox(height: 8),
-          _buildSummaryCard(
+          _buildTappableSummaryCard(
             'Total Cash Sales',
             CurrencyFormatter.format(data['totalCashSales'] ?? 0.0),
             Icons.money,
             AppColors.textPrimary,
+            () => _navigateToDetail(DetailScreenType.cashSales, 'Total Cash Sales'),
           ),
           const SizedBox(height: 12),
-          _buildSummaryCard(
+          _buildTappableSummaryCard(
             'Card Sales',
             CurrencyFormatter.format(data['totalCardSales'] ?? 0.0),
             Icons.credit_card,
             AppColors.textPrimary,
+            () => _navigateToDetail(DetailScreenType.cardSales, 'Card Sales'),
           ),
           const SizedBox(height: 12),
-          _buildSummaryCard(
+          _buildTappableSummaryCard(
             'Online Sales',
             CurrencyFormatter.format(data['totalOnlineSales'] ?? 0.0),
             Icons.shopping_cart,
             AppColors.textPrimary,
+            () => _navigateToDetail(DetailScreenType.onlineSales, 'Online Sales'),
           ),
           const SizedBox(height: 12),
-          _buildSummaryCard(
+          _buildTappableSummaryCard(
             'UPI Payments',
             CurrencyFormatter.format(data['totalQrPayments'] ?? 0.0),
             Icons.qr_code,
             AppColors.textPrimary,
+            () => _navigateToDetail(DetailScreenType.qrPayments, 'UPI Payments'),
           ),
           const SizedBox(height: 12),
-          _buildTotalCard(
+          _buildTappableTotalCard(
             'Total Sales',
             CurrencyFormatter.format(totalSalesAmount),
             Icons.trending_up,
             AppColors.success,
+            () => _navigateToAggregatedDetail('Total Sales', data, totalSalesAmount, totalExpensesAmount, totalProfit),
           ),
           const SizedBox(height: 24),
           // Expenses Section
           _buildSectionHeader('Expenses'),
           const SizedBox(height: 8),
-          _buildSummaryCard(
+          _buildTappableSummaryCard(
             'Total Cash Expenses',
             CurrencyFormatter.format(data['totalExpenses'] ?? 0.0),
             Icons.receipt_long,
             AppColors.textPrimary,
+            () => _navigateToDetail(DetailScreenType.cashExpenses, 'Total Cash Expenses'),
           ),
           const SizedBox(height: 12),
-          _buildSummaryCard(
+          _buildTappableSummaryCard(
             'Total Credit Expenses',
             CurrencyFormatter.format(data['totalCreditExpenses'] ?? 0.0),
             Icons.credit_card_outlined,
             AppColors.textPrimary,
+            () => _navigateToDetail(DetailScreenType.creditExpenses, 'Total Credit Expenses'),
           ),
           const SizedBox(height: 12),
-          _buildTotalCard(
+          _buildTappableTotalCard(
             'Total Expenses',
             CurrencyFormatter.format(totalExpensesAmount),
             Icons.account_balance,
             AppColors.error,
+            () => _navigateToAggregatedDetail('Total Expenses', data, totalSalesAmount, totalExpensesAmount, totalProfit),
+          ),
+          const SizedBox(height: 12),
+          _buildTappableProfitCard(
+            totalProfit >= 0 ? 'Total Profit' : 'Total Loss',
+            CurrencyFormatter.format(totalProfit),
+            profitPercentage,
+            totalProfit >= 0 ? Icons.trending_up : Icons.trending_down,
+            totalProfit >= 0 ? AppColors.success : AppColors.error,
+            () => _navigateToAggregatedDetail('Total Profit', data, totalSalesAmount, totalExpensesAmount, totalProfit),
           ),
           const SizedBox(height: 24),
           // Others Section
@@ -690,48 +722,202 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
     );
   }
 
-  Widget _buildTotalCard(String title, String value, IconData icon, Color color) {
-    return Card(
-      elevation: 3,
-      color: color.withValues(alpha: 0.1),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(10),
+  Widget _buildTappableSummaryCard(String title, String value, IconData icon, Color color, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Card(
+        elevation: 2,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: color, size: 32),
               ),
-              child: Icon(icon, color: color, size: 32),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: color,
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: AppColors.textTertiary,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    value,
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: color,
+                    const SizedBox(height: 4),
+                    Text(
+                      value,
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+              Icon(Icons.chevron_right, color: AppColors.textTertiary),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTappableTotalCard(String title, String value, IconData icon, Color color, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Card(
+        elevation: 3,
+        color: color.withValues(alpha: 0.1),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: color, size: 32),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: color,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      value,
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: color),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTappableProfitCard(String title, String value, double percentage, IconData icon, Color color, VoidCallback onTap) {
+    final percentageText = '${percentage >= 0 ? '+' : ''}${percentage.toStringAsFixed(1)}%';
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Card(
+        elevation: 3,
+        color: color.withValues(alpha: 0.1),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: color, size: 32),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: color,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      value,
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      percentageText,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: color,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: color),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _navigateToDetail(DetailScreenType type, String title) {
+    final branches = _getSelectedBranches();
+    final dateRange = _getDateRange();
+    
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => OwnerDashboardDetailScreen(
+          type: type,
+          title: title,
+          selectedBranches: branches,
+          dateRange: dateRange,
+        ),
+      ),
+    );
+  }
+
+  void _navigateToAggregatedDetail(String title, Map<String, dynamic> data, double totalSales, double totalExpenses, double totalProfit) {
+    final branches = _getSelectedBranches();
+    final dateRange = _getDateRange();
+    
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => OwnerDashboardAggregatedDetailScreen(
+          title: title,
+          data: data,
+          totalSales: totalSales,
+          totalExpenses: totalExpenses,
+          totalProfit: totalProfit,
+          selectedBranches: branches,
+          dateRange: dateRange,
         ),
       ),
     );
@@ -770,6 +956,8 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
   Widget _buildDateRangeSelector() {
     String getDisplayText() {
       switch (_selectedRangeOption) {
+        case DateRangeOption.allTime:
+          return 'All Time';
         case DateRangeOption.today:
           return 'Today';
         case DateRangeOption.yesterday:

@@ -7,6 +7,7 @@ import '../models/supplier.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
+import '../utils/delete_confirmation_dialog.dart';
 import 'supplier_management_screen.dart';
 
 class CreditExpenseScreen extends StatefulWidget {
@@ -73,10 +74,11 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
             if (expense.note != null) {
               row.noteController.text = expense.note!;
             }
-            _expenses.add(row);
             if (expense.id != null) {
+              row.id = expense.id!;
               _existingExpenseIds.add(expense.id!);
             }
+            _expenses.add(row);
           }
         });
       } else {
@@ -141,7 +143,29 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
     });
   }
 
-  void _removeRow(int index) {
+  Future<void> _removeRow(int index) async {
+    final expense = _expenses[index];
+    final hasValue = expense.amount != null && expense.amount! > 0;
+    
+    if (hasValue) {
+      final confirmed = await showDeleteConfirmationDialog(
+        context,
+        title: 'Delete Expense',
+        message: 'Are you sure you want to delete this expense?',
+      );
+      if (!confirmed) return;
+    }
+    
+    // If this row was saved to database, delete it
+    if (expense.id != null) {
+      try {
+        await _dbService.deleteCreditExpense(expense.id!);
+        _existingExpenseIds.remove(expense.id!);
+      } catch (e) {
+        debugPrint('Error deleting expense from database: $e');
+      }
+    }
+    
     setState(() {
       _expenses.removeAt(index);
       if (_expenses.isEmpty) {
@@ -510,6 +534,7 @@ class CreditExpenseRow {
   String? supplier;
   String? category;
   double? amount;
+  String? id; // Track if this row is saved in database
 
   CreditExpenseRow();
 

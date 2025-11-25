@@ -6,6 +6,7 @@ import '../models/qr_payment.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
+import '../utils/delete_confirmation_dialog.dart';
 
 class QrPaymentScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -75,10 +76,11 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
               row.notesController.text = payment.notes!;
             }
             
-            _payments.add(row);
             if (payment.id != null) {
+              row.id = payment.id!;
               _existingPaymentIds.add(payment.id!);
             }
+            _payments.add(row);
           }
         });
       } else {
@@ -100,7 +102,29 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
     });
   }
 
-  void _removePayment(int index) {
+  Future<void> _removePayment(int index) async {
+    final payment = _payments[index];
+    final hasValue = payment.amount != null && payment.amount! > 0;
+    
+    if (hasValue) {
+      final confirmed = await showDeleteConfirmationDialog(
+        context,
+        title: 'Delete Payment',
+        message: 'Are you sure you want to delete this payment?',
+      );
+      if (!confirmed) return;
+    }
+    
+    // If this row was saved to database, delete it
+    if (payment.id != null) {
+      try {
+        await _dbService.deleteQrPayment(payment.id!);
+        _existingPaymentIds.remove(payment.id!);
+      } catch (e) {
+        debugPrint('Error deleting payment from database: $e');
+      }
+    }
+    
     setState(() {
       _payments.removeAt(index);
       if (_payments.isEmpty) {
@@ -474,6 +498,7 @@ class QrPaymentRow {
   String? provider;
   double? amount;
   DateTime? settlementDate;
+  String? id; // Track if this row is saved in database
 
   QrPaymentRow();
 

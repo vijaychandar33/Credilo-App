@@ -18,17 +18,63 @@ class DashboardHomeScreen extends StatefulWidget {
   State<DashboardHomeScreen> createState() => _DashboardHomeScreenState();
 }
 
-class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
+class _DashboardHomeScreenState extends State<DashboardHomeScreen> with WidgetsBindingObserver {
   final AuthService _authService = AuthService();
   final DatabaseService _dbService = DatabaseService();
   Map<String, dynamic>? _todayStats;
   bool _isLoading = true;
+  DateTime? _lastRefreshTime;
+  bool _hasLoadedOnce = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _ensureBranchData();
     _loadDashboardData();
+    _hasLoadedOnce = true;
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Refresh data when app comes back to foreground
+      _refreshIfNeeded();
+    }
+  }
+
+  void _refreshIfNeeded() {
+    // Only refresh if it's been more than 1 second since last refresh
+    final now = DateTime.now();
+    if (_lastRefreshTime == null || 
+        now.difference(_lastRefreshTime!).inSeconds > 1) {
+      _lastRefreshTime = now;
+      if (mounted) {
+        _loadDashboardData();
+      }
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Refresh when navigating back to this screen (only after initial load)
+    if (_hasLoadedOnce) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          final route = ModalRoute.of(context);
+          if (route != null && route.isCurrent) {
+            _refreshIfNeeded();
+          }
+        }
+      });
+    }
   }
 
   Future<void> _ensureBranchData() async {
@@ -404,15 +450,19 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
                   margin: const EdgeInsets.only(bottom: 8),
                   color: Theme.of(context).colorScheme.surfaceContainerHighest,
                   child: InkWell(
-                    onTap: () {
+                    onTap: () async {
                       // Set the selected branch and navigate to daily operations
                       _authService.setCurrentBranch(branch);
-                      Navigator.push(
+                      await Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (context) => const FinancialEntryScreen(),
                         ),
                       );
+                      // Refresh dashboard data when returning
+                      if (mounted) {
+                        _loadDashboardData();
+                      }
                     },
                     borderRadius: BorderRadius.circular(12),
                     child: ListTile(

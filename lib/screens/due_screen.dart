@@ -6,6 +6,7 @@ import '../models/due.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
+import '../utils/delete_confirmation_dialog.dart';
 
 class DueScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -88,16 +89,17 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
               row.remarksController.text = due.remarks!;
             }
             
+            if (due.id != null) {
+              row.id = due.id!;
+              _existingDueIds.add(due.id!);
+            }
+            
             if (due.type == DueType.receivable) {
               _receivables.add(row);
               debugPrint('Added receivable: ${row.partyController.text}, status: ${row.status}');
             } else {
               _payables.add(row);
               debugPrint('Added payable: ${row.partyController.text}, status: ${row.status}');
-            }
-            
-            if (due.id != null) {
-              _existingDueIds.add(due.id!);
             }
           }
           
@@ -139,7 +141,29 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
     });
   }
 
-  void _removeReceivable(int index) {
+  Future<void> _removeReceivable(int index) async {
+    final due = _receivables[index];
+    final hasValue = due.amount != null && due.amount! > 0;
+    
+    if (hasValue) {
+      final confirmed = await showDeleteConfirmationDialog(
+        context,
+        title: 'Delete Receivable',
+        message: 'Are you sure you want to delete this receivable?',
+      );
+      if (!confirmed) return;
+    }
+    
+    // If this row was saved to database, delete it
+    if (due.id != null) {
+      try {
+        await _dbService.deleteDue(due.id!);
+        _existingDueIds.remove(due.id!);
+      } catch (e) {
+        debugPrint('Error deleting due from database: $e');
+      }
+    }
+    
     setState(() {
       _receivables.removeAt(index);
       if (_receivables.isEmpty) {
@@ -148,7 +172,29 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
     });
   }
 
-  void _removePayable(int index) {
+  Future<void> _removePayable(int index) async {
+    final due = _payables[index];
+    final hasValue = due.amount != null && due.amount! > 0;
+    
+    if (hasValue) {
+      final confirmed = await showDeleteConfirmationDialog(
+        context,
+        title: 'Delete Payable',
+        message: 'Are you sure you want to delete this payable?',
+      );
+      if (!confirmed) return;
+    }
+    
+    // If this row was saved to database, delete it
+    if (due.id != null) {
+      try {
+        await _dbService.deleteDue(due.id!);
+        _existingDueIds.remove(due.id!);
+      } catch (e) {
+        debugPrint('Error deleting due from database: $e');
+      }
+    }
+    
     setState(() {
       _payables.removeAt(index);
       if (_payables.isEmpty) {
@@ -602,6 +648,7 @@ class DueRow {
   String? status = 'Open';
   double? amount;
   DateTime? dueDate;
+  String? id; // Track if this row is saved in database
 
   DueRow({required this.type}) {
     // Set default due date to 5 days from today

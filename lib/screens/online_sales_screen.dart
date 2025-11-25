@@ -6,6 +6,7 @@ import '../models/online_sale.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
+import '../utils/delete_confirmation_dialog.dart';
 
 class OnlineSalesScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -80,10 +81,11 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
             // Settlement status is not in the model, default to 'Pending'
             row._calculateNet();
             
-            _sales.add(row);
             if (sale.id != null) {
+              row.id = sale.id!;
               _existingSaleIds.add(sale.id!);
             }
+            _sales.add(row);
           }
         });
       } else {
@@ -105,7 +107,29 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
     });
   }
 
-  void _removeSale(int index) {
+  Future<void> _removeSale(int index) async {
+    final sale = _sales[index];
+    final hasValue = sale.gross != null && sale.gross! > 0;
+    
+    if (hasValue) {
+      final confirmed = await showDeleteConfirmationDialog(
+        context,
+        title: 'Delete Sale',
+        message: 'Are you sure you want to delete this sale?',
+      );
+      if (!confirmed) return;
+    }
+    
+    // If this row was saved to database, delete it
+    if (sale.id != null) {
+      try {
+        await _dbService.deleteOnlineSale(sale.id!);
+        _existingSaleIds.remove(sale.id!);
+      } catch (e) {
+        debugPrint('Error deleting sale from database: $e');
+      }
+    }
+    
     setState(() {
       _sales.removeAt(index);
       if (_sales.isEmpty) {
@@ -520,6 +544,7 @@ class OnlineSaleRow {
   double? commission;
   DateTime? settlementDate;
   String? settlementStatus = 'Pending';
+  String? id; // Track if this row is saved in database
 
   OnlineSaleRow();
 

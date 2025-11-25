@@ -7,6 +7,7 @@ import '../services/auth_service.dart';
 import 'card_machine_management_screen.dart';
 import '../utils/app_colors.dart';
 import '../utils/currency_formatter.dart';
+import '../utils/delete_confirmation_dialog.dart';
 
 class CardScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -122,6 +123,7 @@ class _CardScreenState extends State<CardScreen> {
 
           _sales.add(row);
           if (sale.id != null) {
+            row.id = sale.id!;
             _existingSaleIds.add(sale.id!);
           }
         }
@@ -160,7 +162,29 @@ class _CardScreenState extends State<CardScreen> {
     });
   }
 
-  void _removeSale(int index) {
+  Future<void> _removeSale(int index) async {
+    final sale = _sales[index];
+    final hasValue = sale.amount != null && sale.amount! > 0;
+    
+    if (hasValue) {
+      final confirmed = await showDeleteConfirmationDialog(
+        context,
+        title: 'Delete Sale',
+        message: 'Are you sure you want to delete this sale?',
+      );
+      if (!confirmed) return;
+    }
+    
+    // If this row was saved to database, delete it
+    if (sale.id != null) {
+      try {
+        await _dbService.deleteCardSale(sale.id!);
+        _existingSaleIds.remove(sale.id!);
+      } catch (e) {
+        debugPrint('Error deleting sale from database: $e');
+      }
+    }
+    
     setState(() {
       _sales.removeAt(index);
       if (_sales.isEmpty) {
@@ -528,6 +552,7 @@ class CardSaleRow {
   double? amount;
   bool isMachineLocked = false;
   String? machineLabel;
+  String? id; // Track if this row is saved in database
 
   CardSaleRow();
 

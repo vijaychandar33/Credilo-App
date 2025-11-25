@@ -1,4 +1,5 @@
 enum DateRangeOption {
+  allTime,
   today,
   yesterday,
   last7Days,
@@ -17,7 +18,7 @@ class DateRangeSelection {
   });
 }
 
-DateRangeSelection resolveDateRange(
+DateRangeSelection? resolveDateRange(
   DateRangeOption option, {
   DateTime? customStartDate,
   DateTime? customEndDate,
@@ -26,6 +27,8 @@ DateRangeSelection resolveDateRange(
   final today = DateTime(now.year, now.month, now.day);
 
   switch (option) {
+    case DateRangeOption.allTime:
+      return null; // null means no date filter (all time)
     case DateRangeOption.today:
       return DateRangeSelection(startDate: today, endDate: today);
     case DateRangeOption.yesterday:
