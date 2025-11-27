@@ -6,7 +6,7 @@
 2. Sign up or log in
 3. Click "New Project"
 4. Fill in:
-   - **Name**: business_finance_manager (or your choice)
+   - **Name**: credilo (or your choice)
    - **Database Password**: Create a strong password (save it!)
    - **Region**: Choose closest to you
    - Click "Create new project"

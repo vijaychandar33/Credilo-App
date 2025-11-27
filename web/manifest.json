@@ -1,6 +1,6 @@
 {
-    "name": "business_finance_manager",
-    "short_name": "business_finance_manager",
+    "name": "credilo",
+    "short_name": "credilo",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

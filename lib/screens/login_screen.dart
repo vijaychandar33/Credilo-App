@@ -128,14 +128,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Icon(
-                    Icons.account_balance_wallet,
-                    size: 80,
-                    color: AppColors.primary,
+                  Image.asset(
+                    'assets/Credilo.app Logo 500.png',
+                    height: 100,
                   ),
                   const SizedBox(height: 24),
                   const Text(
-                    'Business Finance Manager',
+                    'credilo',
                     style: TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.bold,

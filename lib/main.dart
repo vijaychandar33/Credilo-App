@@ -101,7 +101,7 @@ class _MyAppState extends State<MyApp> {
       );
 
     return MaterialApp(
-      title: 'Business Finance Manager',
+      title: 'credilo',
       theme: appTheme,
       darkTheme: appTheme,
       themeMode: ThemeMode.dark,

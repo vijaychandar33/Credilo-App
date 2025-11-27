@@ -1,4 +1,4 @@
--- Business Finance Manager - Database Schema
+-- credilo - Database Schema
 -- Copy and paste this entire file into Supabase SQL Editor
 
 -- Enable UUID extension

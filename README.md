@@ -1,10 +1,10 @@
-# Business Finance Manager
+# credilo
 
 A comprehensive Flutter mobile application for managing daily financial operations across multiple business branches. Built with Supabase backend, featuring role-based access control, real-time data synchronization, and comprehensive financial tracking.
 
 ## Overview
 
-Business Finance Manager helps businesses track and manage their daily financial operations including sales, expenses, cash flow, dues, and supplier management. The app supports multi-branch operations with granular role-based permissions, ensuring data security and proper access control.
+Built by ZyntelX, credilo helps businesses track and manage their daily financial operations including sales, expenses, cash flow, dues, and supplier management. The app supports multi-branch operations with granular role-based permissions, ensuring data security and proper access control.
 
 ## Features
 
@@ -148,7 +148,7 @@ lib/
 1. **Clone the repository**
    ```bash
    git clone <repository-url>
-   cd business_finance_manager
+   cd credilo
    ```
 
 2. **Install dependencies**

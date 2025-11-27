@@ -185,7 +185,7 @@ class SettingsScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Business Finance Manager',
+              'credilo',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,

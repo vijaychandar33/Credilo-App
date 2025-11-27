@@ -1,4 +1,4 @@
-package com.example.business_finance_manager
+package com.zyntelx.credilo
 
 import io.flutter.embedding.android.FlutterActivity
 

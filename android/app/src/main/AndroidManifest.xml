@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="business_finance_manager"
+        android:label="credilo"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
