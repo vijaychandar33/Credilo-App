@@ -6,7 +6,6 @@ class CardSale {
   final String tid;
   final String machineName;
   final double amount;
-  final int? txnCount;
   final String? notes;
   final DateTime? createdAt;
 
@@ -18,7 +17,6 @@ class CardSale {
     required this.tid,
     required this.machineName,
     required this.amount,
-    this.txnCount,
     this.notes,
     this.createdAt,
   });
@@ -32,7 +30,6 @@ class CardSale {
       'tid': tid,
       'machine_name': machineName,
       'amount': amount,
-      'txn_count': txnCount,
       'notes': notes,
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
     };
@@ -47,7 +44,6 @@ class CardSale {
       tid: json['tid'] ?? '',
       machineName: json['machine_name'] ?? '',
       amount: (json['amount'] as num).toDouble(),
-      txnCount: json['txn_count'],
       notes: json['notes'],
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'])

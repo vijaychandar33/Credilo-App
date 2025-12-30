@@ -2,16 +2,63 @@ import 'package:flutter/material.dart';
 import '../utils/app_colors.dart';
 import '../services/auth_service.dart';
 import '../models/user.dart';
+import '../utils/closing_cycle_service.dart';
 import 'profile_screen.dart';
 import 'login_screen.dart';
 import 'user_management_screen.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
   @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  final AuthService authService = AuthService();
+  bool _useCustomClosing = false;
+  int _closingHour = 0;
+  int _closingMinute = 0;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    setState(() {
+      _isLoading = true;
+    });
+    final useCustom = await ClosingCycleService.isCustomClosingEnabled();
+    final hour = await ClosingCycleService.getClosingHour();
+    final minute = await ClosingCycleService.getClosingMinute();
+    setState(() {
+      _useCustomClosing = useCustom;
+      _closingHour = hour;
+      _closingMinute = minute;
+      _isLoading = false;
+    });
+  }
+
+  Future<void> _showTimePicker() async {
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: _closingHour, minute: _closingMinute),
+      helpText: 'Select closing time',
+    );
+    if (picked != null) {
+      setState(() {
+        _closingHour = picked.hour;
+        _closingMinute = picked.minute;
+      });
+      await ClosingCycleService.setClosingTime(_closingHour, _closingMinute);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final AuthService authService = AuthService();
 
     return Scaffold(
       appBar: AppBar(
@@ -97,6 +144,53 @@ class SettingsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 24),
 
+          // Business Settings Section
+          _buildSectionHeader('Business Settings'),
+          Card(
+            child: Column(
+              children: [
+                SwitchListTile(
+                  secondary: const Icon(Icons.access_time),
+                  title: const Text('Custom Closing Cycle'),
+                  subtitle: const Text('Set a custom time when your business day ends'),
+                  value: _useCustomClosing,
+                  onChanged: _isLoading
+                      ? null
+                      : (value) async {
+                          setState(() {
+                            _useCustomClosing = value;
+                          });
+                          await ClosingCycleService.setCustomClosingEnabled(value);
+                        },
+                ),
+                if (_useCustomClosing) ...[
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.schedule),
+                    title: const Text('Closing Time'),
+                    subtitle: Text(
+                      _isLoading
+                          ? 'Loading...'
+                          : 'Entries until ${_formatTime(_closingHour, _closingMinute)} are recorded as previous day',
+                    ),
+                    trailing: TextButton(
+                      onPressed: _isLoading ? null : _showTimePicker,
+                      child: Text(
+                        _formatTime(_closingHour, _closingMinute),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
           // Danger Zone
           _buildSectionHeader('Danger Zone'),
           Card(
@@ -173,6 +267,11 @@ class SettingsScreen extends StatelessWidget {
       case UserRole.staff:
         return 'Staff';
     }
+  }
+
+  String _formatTime(int hour, int minute) {
+    final time = TimeOfDay(hour: hour, minute: minute);
+    return time.format(context);
   }
 
   void _showAboutDialog(BuildContext context) {

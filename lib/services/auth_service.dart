@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import '../models/user.dart';
 import '../models/branch.dart';
 import '../models/branch_user.dart';
+import '../utils/closing_cycle_service.dart';
 
 class AuthService {
   static final AuthService _instance = AuthService._internal();
@@ -314,40 +315,40 @@ class AuthService {
     }
   }
 
-  bool canEditDate(DateTime date) {
+  Future<bool> canEditDate(DateTime date) async {
     final role = currentRole;
     if (role == null) return false;
     
-    final today = DateTime.now();
-    final todayDateOnly = DateTime(today.year, today.month, today.day);
+    final businessDate = await ClosingCycleService.getBusinessDate();
+    final businessDateOnly = DateTime(businessDate.year, businessDate.month, businessDate.day);
     final dateOnly = DateTime(date.year, date.month, date.day);
-    final yesterday = todayDateOnly.subtract(const Duration(days: 1));
+    final yesterday = businessDateOnly.subtract(const Duration(days: 1));
     
     if (role == UserRole.businessOwner || role == UserRole.owner) {
       return true; // Business owner & owner can edit any date
     } else if (role == UserRole.manager) {
-      return dateOnly == todayDateOnly || dateOnly == yesterday;
+      return dateOnly == businessDateOnly || dateOnly == yesterday;
     } else if (role == UserRole.staff) {
-      return dateOnly == todayDateOnly; // Staff can only edit today
+      return dateOnly == businessDateOnly; // Staff can only edit today
     }
     return false;
   }
 
-  bool canViewDate(DateTime date) {
+  Future<bool> canViewDate(DateTime date) async {
     final role = currentRole;
     if (role == null) return false;
     
-    final today = DateTime.now();
-    final todayDateOnly = DateTime(today.year, today.month, today.day);
+    final businessDate = await ClosingCycleService.getBusinessDate();
+    final businessDateOnly = DateTime(businessDate.year, businessDate.month, businessDate.day);
     final dateOnly = DateTime(date.year, date.month, date.day);
-    final yesterday = todayDateOnly.subtract(const Duration(days: 1));
+    final yesterday = businessDateOnly.subtract(const Duration(days: 1));
     
     if (role == UserRole.businessOwner || role == UserRole.owner) {
       return true;
     } else if (role == UserRole.manager) {
-      return dateOnly == todayDateOnly || dateOnly == yesterday;
+      return dateOnly == businessDateOnly || dateOnly == yesterday;
     } else if (role == UserRole.staff) {
-      return dateOnly == todayDateOnly || dateOnly == yesterday;
+      return dateOnly == businessDateOnly || dateOnly == yesterday;
     }
     return false;
   }

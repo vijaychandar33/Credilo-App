@@ -1,3 +1,5 @@
+import '../utils/closing_cycle_service.dart';
+
 enum DateRangeOption {
   allTime,
   today,
@@ -18,13 +20,14 @@ class DateRangeSelection {
   });
 }
 
-DateRangeSelection? resolveDateRange(
+Future<DateRangeSelection?> resolveDateRange(
   DateRangeOption option, {
   DateTime? customStartDate,
   DateTime? customEndDate,
-}) {
-  final now = DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
+}) async {
+  // Get business date for "today" - this respects the closing cycle
+  final businessDate = await ClosingCycleService.getBusinessDate();
+  final today = DateTime(businessDate.year, businessDate.month, businessDate.day);
 
   switch (option) {
     case DateRangeOption.allTime:

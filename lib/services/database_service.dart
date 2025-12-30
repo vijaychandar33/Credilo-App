@@ -9,6 +9,7 @@ import '../models/cash_closing.dart';
 import '../models/branch.dart';
 import '../models/credit_expense.dart';
 import '../models/supplier.dart';
+import '../utils/closing_cycle_service.dart';
 import 'package:flutter/foundation.dart';
 
 class DatabaseService {
@@ -537,11 +538,135 @@ class DatabaseService {
     }
   }
 
+  Future<void> updateQrPayment(QrPayment payment) async {
+    try {
+      if (payment.id == null) {
+        throw Exception('Payment ID is required for update');
+      }
+      await _client
+          .from('qr_payments')
+          .update(payment.toJson())
+          .eq('id', payment.id!);
+    } catch (e) {
+      debugPrint('Error updating QR payment: $e');
+      rethrow;
+    }
+  }
+
   Future<void> deleteQrPayment(String paymentId) async {
     try {
       await _client.from('qr_payments').delete().eq('id', paymentId);
     } catch (e) {
       debugPrint('Error deleting QR payment: $e');
+      rethrow;
+    }
+  }
+
+  // Get calculated total for QR payments for a specific date and branch
+  // If not stored, calculates it on the fly and stores it for future use
+  Future<double> getQrPaymentCalculatedTotal(DateTime date, String branchId) async {
+    try {
+      final response = await _client
+          .from('daily_qr_totals')
+          .select()
+          .eq('date', date.toIso8601String().split('T')[0])
+          .eq('branch_id', branchId)
+          .maybeSingle();
+
+      if (response != null && response['calculated_total'] != null) {
+        return (response['calculated_total'] as num).toDouble();
+      }
+      
+      // If not stored, calculate it on the fly (for backward compatibility)
+      // This happens for old data that was created before this feature
+      final payments = await getQrPayments(date, branchId);
+      final useCustomClosing = await _checkCustomClosingEnabled();
+      
+      double calculatedTotal = 0.0;
+      
+      if (useCustomClosing) {
+        // Calculate using the formula: (Before 12 AM of current day) - (After 12 AM of previous day) + (After 12 AM of current day)
+        double currentDayBeforeMidnight = 0.0;
+        double currentDayAfterMidnight = 0.0;
+        
+        for (var payment in payments) {
+          currentDayBeforeMidnight += payment.amountBeforeMidnight ?? 0;
+          currentDayAfterMidnight += payment.amountAfterMidnight ?? 0;
+        }
+        
+        // Get previous day's after-midnight sales
+        final previousDate = date.subtract(const Duration(days: 1));
+        final previousPayments = await getQrPayments(previousDate, branchId);
+        double previousDayAfterMidnight = 0.0;
+        for (var payment in previousPayments) {
+          previousDayAfterMidnight += payment.amountAfterMidnight ?? 0;
+        }
+        
+        calculatedTotal = currentDayBeforeMidnight - previousDayAfterMidnight + currentDayAfterMidnight;
+      } else {
+        // Simple sum when custom closing is disabled
+        for (var payment in payments) {
+          if (payment.amount != null) {
+            calculatedTotal += payment.amount!;
+          } else {
+            calculatedTotal += (payment.amountBeforeMidnight ?? 0) + (payment.amountAfterMidnight ?? 0);
+          }
+        }
+      }
+      
+      // Store the calculated total for future use
+      await upsertQrPaymentCalculatedTotal(date, branchId, calculatedTotal);
+      
+      return calculatedTotal;
+    } catch (e) {
+      debugPrint('Error fetching QR payment calculated total: $e');
+      return 0.0;
+    }
+  }
+  
+  // Helper method to check if custom closing is enabled
+  Future<bool> _checkCustomClosingEnabled() async {
+    return await ClosingCycleService.isCustomClosingEnabled();
+  }
+
+  // Update or insert calculated total for QR payments
+  Future<void> upsertQrPaymentCalculatedTotal(
+    DateTime date,
+    String branchId,
+    double calculatedTotal,
+  ) async {
+    try {
+      final dateStr = date.toIso8601String().split('T')[0];
+      
+      // Check if record exists
+      final existing = await _client
+          .from('daily_qr_totals')
+          .select()
+          .eq('date', dateStr)
+          .eq('branch_id', branchId)
+          .maybeSingle();
+      
+      if (existing != null) {
+        // Record exists, update it
+        await _client
+            .from('daily_qr_totals')
+            .update({
+              'calculated_total': calculatedTotal,
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('date', dateStr)
+            .eq('branch_id', branchId);
+      } else {
+        // Record doesn't exist, insert it
+        await _client.from('daily_qr_totals').insert({
+          'date': dateStr,
+          'branch_id': branchId,
+          'calculated_total': calculatedTotal,
+          'updated_at': DateTime.now().toIso8601String(),
+        });
+      }
+    } catch (e) {
+      debugPrint('Error upserting QR payment calculated total: $e');
       rethrow;
     }
   }

@@ -4,9 +4,9 @@ class QrPayment {
   final String userId;
   final String branchId;
   final String provider;
-  final double amount;
-  final String? txnId;
-  final DateTime? settlementDate;
+  final double? amount; // Legacy field, nullable for backward compatibility
+  final double? amountBeforeMidnight; // Sales before 12 AM
+  final double? amountAfterMidnight; // Sales after 12 AM until closing time
   final String? notes;
   final DateTime? createdAt;
 
@@ -16,9 +16,9 @@ class QrPayment {
     required this.userId,
     required this.branchId,
     required this.provider,
-    required this.amount,
-    this.txnId,
-    this.settlementDate,
+    this.amount,
+    this.amountBeforeMidnight,
+    this.amountAfterMidnight,
     this.notes,
     this.createdAt,
   });
@@ -30,9 +30,9 @@ class QrPayment {
       'user_id': userId,
       'branch_id': branchId,
       'provider': provider,
-      'amount': amount,
-      'txn_id': txnId,
-      'settlement_date': settlementDate?.toIso8601String().split('T')[0],
+      if (amount != null) 'amount': amount,
+      if (amountBeforeMidnight != null) 'amount_before_midnight': amountBeforeMidnight,
+      if (amountAfterMidnight != null) 'amount_after_midnight': amountAfterMidnight,
       'notes': notes,
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
     };
@@ -45,10 +45,12 @@ class QrPayment {
       userId: json['user_id']?.toString() ?? '',
       branchId: json['branch_id']?.toString() ?? '',
       provider: json['provider'] ?? '',
-      amount: (json['amount'] as num).toDouble(),
-      txnId: json['txn_id'],
-      settlementDate: json['settlement_date'] != null
-          ? DateTime.parse(json['settlement_date'])
+      amount: json['amount'] != null ? (json['amount'] as num).toDouble() : null,
+      amountBeforeMidnight: json['amount_before_midnight'] != null 
+          ? (json['amount_before_midnight'] as num).toDouble() 
+          : null,
+      amountAfterMidnight: json['amount_after_midnight'] != null 
+          ? (json['amount_after_midnight'] as num).toDouble() 
           : null,
       notes: json['notes'],
       createdAt: json['created_at'] != null

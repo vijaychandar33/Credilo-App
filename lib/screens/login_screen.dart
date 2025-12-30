@@ -128,9 +128,21 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Image.asset(
-                    'assets/Credilo.app Logo 500.png',
-                    height: 100,
+                  Center(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      clipBehavior: Clip.antiAlias,
+                      child: SizedBox(
+                        width: 100,
+                        height: 100,
+                        child: Image.asset(
+                          'assets/Credilo.app Logo 500.png',
+                          fit: BoxFit.cover,
+                          width: 100,
+                          height: 100,
+                        ),
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 24),
                   const Text(

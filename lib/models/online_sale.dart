@@ -7,7 +7,6 @@ class OnlineSale {
   final double gross;
   final double? commission;
   final double net;
-  final DateTime? settlementDate;
   final String? notes;
   final DateTime? createdAt;
 
@@ -20,7 +19,6 @@ class OnlineSale {
     required this.gross,
     this.commission,
     required this.net,
-    this.settlementDate,
     this.notes,
     this.createdAt,
   });
@@ -35,7 +33,6 @@ class OnlineSale {
       'gross': gross,
       'commission': commission,
       'net': net,
-      'settlement_date': settlementDate?.toIso8601String().split('T')[0],
       'notes': notes,
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
     };
@@ -53,9 +50,6 @@ class OnlineSale {
           ? (json['commission'] as num).toDouble()
           : null,
       net: (json['net'] as num).toDouble(),
-      settlementDate: json['settlement_date'] != null
-          ? DateTime.parse(json['settlement_date'])
-          : null,
       notes: json['notes'],
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'])

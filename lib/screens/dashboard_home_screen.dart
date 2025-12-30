@@ -128,8 +128,9 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> with WidgetsB
         final onlineSales = await _dbService.getOnlineSales(today, branch.id);
         totalOnlineSales += onlineSales.fold(0.0, (sum, s) => sum + s.net);
 
-        final qrPayments = await _dbService.getQrPayments(today, branch.id);
-        totalQrPayments += qrPayments.fold(0.0, (sum, p) => sum + p.amount);
+        // Use stored calculated total instead of calculating on the fly
+        final qrTotal = await _dbService.getQrPaymentCalculatedTotal(today, branch.id);
+        totalQrPayments += qrTotal;
 
         final dues = await _dbService.getDues(today, branch.id);
         totalReceivables += dues

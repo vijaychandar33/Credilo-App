@@ -73,7 +73,6 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
                   'machine': sale.machineName,
                   'tid': sale.tid,
                   'amount': sale.amount,
-                  'txnCount': sale.txnCount,
                   'notes': sale.notes,
                   'type': 'card_sale',
                 });
@@ -93,7 +92,6 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
                   'commission': sale.commission,
                   'net': sale.net,
                   'amount': sale.net,
-                  'settlementDate': sale.settlementDate,
                   'notes': sale.notes,
                   'type': 'online_sale',
                 });
@@ -103,20 +101,22 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
 
             case DetailScreenType.qrPayments:
               final qrPayments = await _dbService.getQrPayments(currentDate, branch.id);
+              // Use stored calculated total for the summary
+              final calculatedTotal = await _dbService.getQrPaymentCalculatedTotal(currentDate, branch.id);
+              
               for (var payment in qrPayments) {
                 items.add({
                   'date': currentDate,
                   'branch': branch.name,
                   'branchLocation': branch.location,
                   'provider': payment.provider,
-                  'amount': payment.amount,
-                  'txnId': payment.txnId,
-                  'settlementDate': payment.settlementDate,
+                  'amount': payment.amount ?? (payment.amountBeforeMidnight ?? 0) + (payment.amountAfterMidnight ?? 0),
                   'notes': payment.notes,
                   'type': 'qr_payment',
                 });
-                total += payment.amount;
               }
+              // Use calculated total instead of summing individual payments
+              total += calculatedTotal;
               break;
 
             case DetailScreenType.cashExpenses:
@@ -336,9 +336,6 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
         if (item['tid'] != null) {
           fields.add(_buildField('TID', item['tid']));
         }
-        if (item['txnCount'] != null) {
-          fields.add(_buildField('Transaction Count', item['txnCount'].toString()));
-        }
         if (item['notes'] != null && item['notes'].toString().isNotEmpty) {
           fields.add(_buildField('Notes', item['notes']));
         }
@@ -357,12 +354,6 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
         if (item['net'] != null) {
           fields.add(_buildField('Net', CurrencyFormatter.format((item['net'] as num).toDouble())));
         }
-        if (item['settlementDate'] != null) {
-          fields.add(_buildField(
-            'Settlement Date',
-            DateFormat('d MMM yyyy').format(item['settlementDate'] as DateTime),
-          ));
-        }
         if (item['notes'] != null && item['notes'].toString().isNotEmpty) {
           fields.add(_buildField('Notes', item['notes'].toString()));
         }
@@ -371,15 +362,6 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
       case 'qr_payment':
         if (item['provider'] != null) {
           fields.add(_buildField('Provider', item['provider']));
-        }
-        if (item['txnId'] != null) {
-          fields.add(_buildField('Transaction ID', item['txnId']));
-        }
-        if (item['settlementDate'] != null) {
-          fields.add(_buildField(
-            'Settlement Date',
-            DateFormat('d MMM yyyy').format(item['settlementDate']),
-          ));
         }
         if (item['notes'] != null && item['notes'].toString().isNotEmpty) {
           fields.add(_buildField('Notes', item['notes']));

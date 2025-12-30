@@ -96,7 +96,7 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
           : _selectedStatuses.toList();
       
       // Get date range
-      final dateRange = resolveDateRange(
+      final dateRange = await resolveDateRange(
         _selectedRangeOption,
         customStartDate: _customStartDate,
         customEndDate: _customEndDate,

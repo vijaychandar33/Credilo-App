@@ -7,6 +7,7 @@ import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/delete_confirmation_dialog.dart';
+import '../utils/closing_cycle_service.dart';
 
 class QrPaymentScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -31,11 +32,26 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
     'GooglePay',
     'Others',
   ];
+  bool _useCustomClosing = false;
+  int _closingHour = 0;
+  int _closingMinute = 0;
 
   @override
   void initState() {
     super.initState();
+    _loadClosingCycleSettings();
     _loadData();
+  }
+
+  Future<void> _loadClosingCycleSettings() async {
+    final useCustom = await ClosingCycleService.isCustomClosingEnabled();
+    final hour = await ClosingCycleService.getClosingHour();
+    final minute = await ClosingCycleService.getClosingMinute();
+    setState(() {
+      _useCustomClosing = useCustom;
+      _closingHour = hour;
+      _closingMinute = minute;
+    });
   }
 
   Future<void> _loadData() async {
@@ -56,22 +72,78 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
       final payments = await _dbService.getQrPayments(widget.selectedDate, branch.id);
       
       if (payments.isNotEmpty) {
+        // First, migrate payments if needed (outside setState for async operations)
+        for (var payment in payments) {
+          // Migrate: If custom closing is enabled and payment has amount but no amountBeforeMidnight/amountAfterMidnight,
+          // migrate the amount to amountBeforeMidnight
+          if (_useCustomClosing && 
+              payment.amount != null && 
+              payment.amountBeforeMidnight == null && 
+              payment.amountAfterMidnight == null &&
+              payment.id != null) {
+            try {
+              final updatedPayment = QrPayment(
+                id: payment.id,
+                date: payment.date,
+                userId: payment.userId,
+                branchId: payment.branchId,
+                provider: payment.provider,
+                amount: null, // Clear the old amount field
+                amountBeforeMidnight: payment.amount,
+                amountAfterMidnight: null,
+                notes: payment.notes,
+                createdAt: payment.createdAt,
+              );
+              await _dbService.updateQrPayment(updatedPayment);
+              // Update the payment object to reflect migration
+              payment = updatedPayment;
+            } catch (e) {
+              debugPrint('Error migrating payment amount: $e');
+            }
+          }
+        }
+        
+        // Reload payments after migration
+        final updatedPayments = await _dbService.getQrPayments(widget.selectedDate, branch.id);
+        
         setState(() {
           _payments.clear();
           _existingPaymentIds.clear();
           
-          for (var payment in payments) {
+          for (var payment in updatedPayments) {
             final row = QrPaymentRow();
             row.provider = payment.provider;
-            row.amountController.text = payment.amount.toStringAsFixed(2);
-            row.amount = payment.amount;
-            if (payment.txnId != null) {
-              row.txnIdController.text = payment.txnId!;
+            
+            // Load data based on whether custom closing is enabled
+            if (_useCustomClosing) {
+              if (payment.amountBeforeMidnight != null) {
+                row.amountBeforeMidnightController.text = payment.amountBeforeMidnight!.toStringAsFixed(2);
+                row.amountBeforeMidnight = payment.amountBeforeMidnight;
+              }
+              if (payment.amountAfterMidnight != null) {
+                row.amountAfterMidnightController.text = payment.amountAfterMidnight!.toStringAsFixed(2);
+                row.amountAfterMidnight = payment.amountAfterMidnight;
+              }
+              // If payment still has amount (migration might have failed), use it
+              if (payment.amount != null && 
+                  payment.amountBeforeMidnight == null && 
+                  payment.amountAfterMidnight == null) {
+                row.amountBeforeMidnightController.text = payment.amount!.toStringAsFixed(2);
+                row.amountBeforeMidnight = payment.amount;
+              }
+            } else {
+              // Legacy: use single amount field
+              if (payment.amount != null) {
+                row.amountController.text = payment.amount!.toStringAsFixed(2);
+                row.amount = payment.amount;
+              } else if (payment.amountBeforeMidnight != null || payment.amountAfterMidnight != null) {
+                // Migrate old data: combine the two amounts
+                final total = (payment.amountBeforeMidnight ?? 0) + (payment.amountAfterMidnight ?? 0);
+                row.amountController.text = total.toStringAsFixed(2);
+                row.amount = total;
+              }
             }
-            if (payment.settlementDate != null) {
-              row.settlementDate = payment.settlementDate;
-              row.settlementDateController.text = DateFormat('d MMM yyyy').format(payment.settlementDate!);
-            }
+            
             if (payment.notes != null) {
               row.notesController.text = payment.notes!;
             }
@@ -104,7 +176,10 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
 
   Future<void> _removePayment(int index) async {
     final payment = _payments[index];
-    final hasValue = payment.amount != null && payment.amount! > 0;
+    final hasValue = _useCustomClosing
+        ? ((payment.amountBeforeMidnight != null && payment.amountBeforeMidnight! > 0) ||
+           (payment.amountAfterMidnight != null && payment.amountAfterMidnight! > 0))
+        : (payment.amount != null && payment.amount! > 0);
     
     if (hasValue) {
       final confirmed = await showDeleteConfirmationDialog(
@@ -116,10 +191,21 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
     }
     
     // If this row was saved to database, delete it
+    final branch = _authService.currentBranch;
     if (payment.id != null) {
       try {
         await _dbService.deleteQrPayment(payment.id!);
         _existingPaymentIds.remove(payment.id!);
+        
+        // Recalculate and update the total after deletion
+        if (branch != null) {
+          final calculatedTotal = await _getTotalPayments();
+          await _dbService.upsertQrPaymentCalculatedTotal(
+            widget.selectedDate,
+            branch.id,
+            calculatedTotal,
+          );
+        }
       } catch (e) {
         debugPrint('Error deleting payment from database: $e');
       }
@@ -133,8 +219,71 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
     });
   }
 
-  double _getTotalPayments() {
-    return _payments.fold(0.0, (sum, payment) => sum + (payment.amount ?? 0));
+  double _getTotalPaymentsSync() {
+    if (!_useCustomClosing) {
+      // Simple sum when custom closing is disabled
+      return _payments.fold(0.0, (sum, payment) => sum + (payment.amount ?? 0));
+    }
+    
+    // When custom closing is enabled, calculate current day's amounts
+    double currentDayBeforeMidnight = 0.0;
+    double currentDayAfterMidnight = 0.0;
+    
+    // Sum current day's amounts
+    for (var payment in _payments) {
+      currentDayBeforeMidnight += payment.amountBeforeMidnight ?? 0;
+      currentDayAfterMidnight += payment.amountAfterMidnight ?? 0;
+    }
+    
+    // For now, return the sum of current day's amounts
+    // The previous day's after-midnight will be loaded separately
+    return currentDayBeforeMidnight + currentDayAfterMidnight;
+  }
+
+  Future<double> _getPreviousDayAfterMidnight() async {
+    if (!_useCustomClosing) {
+      return 0.0;
+    }
+    
+    final branch = _authService.currentBranch;
+    if (branch == null) {
+      return 0.0;
+    }
+    
+    final previousDate = widget.selectedDate.subtract(const Duration(days: 1));
+    final previousDayPayments = await _dbService.getQrPayments(previousDate, branch.id);
+    
+    double previousDayAfterMidnight = 0.0;
+    for (var payment in previousDayPayments) {
+      previousDayAfterMidnight += payment.amountAfterMidnight ?? 0;
+    }
+    
+    return previousDayAfterMidnight;
+  }
+
+  Future<double> _getTotalPayments() async {
+    if (!_useCustomClosing) {
+      // Simple sum when custom closing is disabled
+      return _getTotalPaymentsSync();
+    }
+    
+    // When custom closing is enabled, calculate using the formula:
+    // Total = (Before 12 AM sales of current day) - (After 12 AM sales of previous day) + (After 12 AM sales of current day)
+    
+    double currentDayBeforeMidnight = 0.0;
+    double currentDayAfterMidnight = 0.0;
+    
+    // Sum current day's amounts
+    for (var payment in _payments) {
+      currentDayBeforeMidnight += payment.amountBeforeMidnight ?? 0;
+      currentDayAfterMidnight += payment.amountAfterMidnight ?? 0;
+    }
+    
+    // Get previous day's after-midnight sales
+    final previousDayAfterMidnight = await _getPreviousDayAfterMidnight();
+    
+    // Formula: (Before 12 AM of current day) - (After 12 AM of previous day) + (After 12 AM of current day)
+    return currentDayBeforeMidnight - previousDayAfterMidnight + currentDayAfterMidnight;
   }
 
   Future<void> _save() async {
@@ -149,16 +298,28 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
     }
 
     // Validate that at least one payment has amount
-    if (!_payments.any((payment) => payment.amount != null && payment.amount! > 0)) {
+    final hasAmount = _useCustomClosing
+        ? _payments.any((payment) => 
+            (payment.amountBeforeMidnight != null && payment.amountBeforeMidnight! > 0) ||
+            (payment.amountAfterMidnight != null && payment.amountAfterMidnight! > 0))
+        : _payments.any((payment) => payment.amount != null && payment.amount! > 0);
+    
+    if (!hasAmount) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please add at least one payment with amount')),
       );
       return;
     }
 
+    // Validate all payments with amounts have providers
     bool hasValidationErrors = false;
     for (var paymentRow in _payments) {
-      if (paymentRow.amount != null && paymentRow.amount! > 0) {
+      final hasAmountValue = _useCustomClosing
+          ? ((paymentRow.amountBeforeMidnight != null && paymentRow.amountBeforeMidnight! > 0) ||
+             (paymentRow.amountAfterMidnight != null && paymentRow.amountAfterMidnight! > 0))
+          : (paymentRow.amount != null && paymentRow.amount! > 0);
+      
+      if (hasAmountValue) {
         final missingProvider = paymentRow.provider == null || paymentRow.provider!.isEmpty;
         if (missingProvider) {
           hasValidationErrors = true;
@@ -171,7 +332,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
         _showValidationErrors = true;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Fill all required fields to save')),
+        const SnackBar(content: Text('Payment provider is required for all entries with amounts')),
       );
       return;
     } else if (_showValidationErrors) {
@@ -200,7 +361,12 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
 
       // Save payments
       for (var paymentRow in _payments) {
-        if (paymentRow.amount != null && paymentRow.amount! > 0) {
+        final hasAmount = _useCustomClosing
+            ? (paymentRow.amountBeforeMidnight != null && paymentRow.amountBeforeMidnight! > 0) ||
+              (paymentRow.amountAfterMidnight != null && paymentRow.amountAfterMidnight! > 0)
+            : (paymentRow.amount != null && paymentRow.amount! > 0);
+        
+        if (hasAmount) {
           if (paymentRow.provider == null || paymentRow.provider!.isEmpty) {
             errors.add('Payment provider is required');
             continue; // Skip if provider is not selected
@@ -212,11 +378,9 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
               userId: user.id,
               branchId: branch.id,
               provider: paymentRow.provider!,
-              amount: paymentRow.amount!,
-              txnId: paymentRow.txnIdController.text.trim().isEmpty
-                  ? null
-                  : paymentRow.txnIdController.text.trim(),
-              settlementDate: paymentRow.settlementDate,
+              amount: _useCustomClosing ? null : paymentRow.amount,
+              amountBeforeMidnight: _useCustomClosing ? paymentRow.amountBeforeMidnight : null,
+              amountAfterMidnight: _useCustomClosing ? paymentRow.amountAfterMidnight : null,
               notes: paymentRow.notesController.text.trim().isEmpty
                   ? null
                   : paymentRow.notesController.text.trim(),
@@ -233,8 +397,18 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
         }
       }
 
-      // Reload data to get fresh IDs
-      await _loadData();
+      // Only reload data if we successfully saved at least one payment
+      if (savedCount > 0) {
+        await _loadData();
+        
+        // Calculate and store the total in the database
+        final calculatedTotal = await _getTotalPayments();
+        await _dbService.upsertQrPaymentCalculatedTotal(
+          widget.selectedDate,
+          branch.id,
+          calculatedTotal,
+        );
+      }
 
       if (mounted) {
         if (savedCount > 0) {
@@ -293,9 +467,17 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.all(16),
-              itemCount: _payments.length + 1,
+              itemCount: _payments.length + (_useCustomClosing ? 2 : 1),
               itemBuilder: (context, index) {
-                if (index == _payments.length) {
+                // Show reference card for yesterday's closing at the top
+                if (_useCustomClosing && index == 0) {
+                  return _buildYesterdayReferenceCard();
+                }
+                
+                // Adjust index for payment rows
+                final paymentIndex = _useCustomClosing ? index - 1 : index;
+                
+                if (paymentIndex == _payments.length) {
                   return Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: OutlinedButton.icon(
@@ -308,7 +490,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                     ),
                   );
                 }
-                return _buildPaymentRow(index);
+                return _buildPaymentRow(paymentIndex);
               },
             ),
           ),
@@ -338,14 +520,29 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      Text(
-                        CurrencyFormatter.format(_getTotalPayments()),
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
+                      _useCustomClosing
+                          ? FutureBuilder<double>(
+                              future: _getTotalPayments(),
+                              builder: (context, snapshot) {
+                                final total = snapshot.data ?? _getTotalPaymentsSync();
+                                return Text(
+                                  CurrencyFormatter.format(total),
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: Theme.of(context).colorScheme.primary,
+                                  ),
+                                );
+                              },
+                            )
+                          : Text(
+                              CurrencyFormatter.format(_getTotalPaymentsSync()),
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -374,12 +571,78 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
     );
   }
 
+  Widget _buildYesterdayReferenceCard() {
+    String closingTimeText = '';
+    if (_useCustomClosing) {
+      final time = TimeOfDay(hour: _closingHour, minute: _closingMinute);
+      closingTimeText = time.format(context);
+    }
+    
+    final previousDate = widget.selectedDate.subtract(const Duration(days: 1));
+    
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Yesterday closing before $closingTimeText',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
+                  ),
+                ),
+                Text(
+                  DateFormat('d MMM yyyy').format(previousDate),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                  ),
+                ),
+              ],
+            ),
+            FutureBuilder<double>(
+              future: _getPreviousDayAfterMidnight(),
+              builder: (context, snapshot) {
+                final amount = snapshot.data ?? 0.0;
+                return Text(
+                  CurrencyFormatter.format(amount),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildPaymentRow(int index) {
     final payment = _payments[index];
-    final requiresFields = payment.amount != null && payment.amount! > 0;
+    final requiresFields = _useCustomClosing
+        ? ((payment.amountBeforeMidnight != null && payment.amountBeforeMidnight! > 0) ||
+           (payment.amountAfterMidnight != null && payment.amountAfterMidnight! > 0))
+        : (payment.amount != null && payment.amount! > 0);
     final showProviderError = _showValidationErrors &&
         requiresFields &&
         (payment.provider == null || payment.provider!.isEmpty);
+    
+    String closingTimeText = '';
+    if (_useCustomClosing) {
+      final time = TimeOfDay(hour: _closingHour, minute: _closingMinute);
+      closingTimeText = time.format(context);
+    }
+    
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -397,6 +660,16 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                       border: const OutlineInputBorder(),
                       isDense: true,
                       errorText: showProviderError ? 'Select provider' : null,
+                      errorBorder: showProviderError
+                          ? OutlineInputBorder(
+                              borderSide: const BorderSide(color: AppColors.error, width: 2),
+                            )
+                          : null,
+                      focusedErrorBorder: showProviderError
+                          ? OutlineInputBorder(
+                              borderSide: const BorderSide(color: AppColors.error, width: 2),
+                            )
+                          : null,
                     ),
                     items: _providers.map((provider) {
                       return DropdownMenuItem(value: provider, child: Text(provider));
@@ -404,6 +677,24 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                     onChanged: (value) {
                       setState(() {
                         payment.provider = value;
+                        // Clear validation error when provider is selected
+                        if (value != null && value.isNotEmpty && _showValidationErrors) {
+                          // Check if all payments with amounts have providers now
+                          bool allValid = true;
+                          for (var p in _payments) {
+                            final hasAmountValue = _useCustomClosing
+                                ? ((p.amountBeforeMidnight != null && p.amountBeforeMidnight! > 0) ||
+                                   (p.amountAfterMidnight != null && p.amountAfterMidnight! > 0))
+                                : (p.amount != null && p.amount! > 0);
+                            if (hasAmountValue && (p.provider == null || p.provider!.isEmpty)) {
+                              allValid = false;
+                              break;
+                            }
+                          }
+                          if (allValid) {
+                            _showValidationErrors = false;
+                          }
+                        }
                       });
                     },
                   ),
@@ -415,64 +706,70 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            TextField(
-              controller: payment.amountController,
-              decoration: const InputDecoration(
-                labelText: 'Amount',
-                border: OutlineInputBorder(),
-                isDense: true,
-                prefixText: '₹',
-              ),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
-              ],
-              onChanged: (value) {
-                setState(() {
-                  payment.amount = value.isEmpty
-                      ? null
-                      : double.tryParse(value);
-                });
-              },
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: payment.txnIdController,
-              decoration: const InputDecoration(
-                labelText: 'Transaction ID (optional)',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextButton(
-                    onPressed: () async {
-                      final date = await showDatePicker(
-                        context: context,
-                        initialDate: payment.settlementDate ?? DateTime.now(),
-                        firstDate: DateTime(2020),
-                        lastDate: DateTime(2100),
-                      );
-                      if (date != null) {
-                        setState(() {
-                          payment.settlementDate = date;
-                          payment.settlementDateController.text =
-                              DateFormat('d MMM yyyy').format(date);
-                        });
-                      }
-                    },
-                    child: Text(
-                      payment.settlementDateController.text.isEmpty
-                          ? 'Select Settlement Date'
-                          : payment.settlementDateController.text,
-                    ),
-                  ),
+            if (_useCustomClosing) ...[
+              TextField(
+                controller: payment.amountBeforeMidnightController,
+                decoration: const InputDecoration(
+                  labelText: 'Sales until 12 AM',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                  prefixText: '₹',
                 ),
-              ],
-            ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
+                ],
+                onChanged: (value) {
+                  setState(() {
+                    payment.amountBeforeMidnight = value.isEmpty
+                        ? null
+                        : double.tryParse(value);
+                  });
+                },
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: payment.amountAfterMidnightController,
+                decoration: InputDecoration(
+                  labelText: 'Sales until $closingTimeText',
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                  prefixText: '₹',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
+                ],
+                onChanged: (value) {
+                  setState(() {
+                    payment.amountAfterMidnight = value.isEmpty
+                        ? null
+                        : double.tryParse(value);
+                  });
+                },
+              ),
+            ] else ...[
+              TextField(
+                controller: payment.amountController,
+                decoration: const InputDecoration(
+                  labelText: 'Amount',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                  prefixText: '₹',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
+                ],
+                onChanged: (value) {
+                  setState(() {
+                    payment.amount = value.isEmpty
+                        ? null
+                        : double.tryParse(value);
+                  });
+                },
+              ),
+            ],
             const SizedBox(height: 8),
             TextField(
               controller: payment.notesController,
@@ -492,20 +789,21 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
 
 class QrPaymentRow {
   final TextEditingController amountController = TextEditingController();
-  final TextEditingController txnIdController = TextEditingController();
-  final TextEditingController settlementDateController = TextEditingController();
+  final TextEditingController amountBeforeMidnightController = TextEditingController();
+  final TextEditingController amountAfterMidnightController = TextEditingController();
   final TextEditingController notesController = TextEditingController();
   String? provider;
-  double? amount;
-  DateTime? settlementDate;
+  double? amount; // Used when custom closing is disabled
+  double? amountBeforeMidnight; // Sales before 12 AM
+  double? amountAfterMidnight; // Sales after 12 AM until closing time
   String? id; // Track if this row is saved in database
 
   QrPaymentRow();
 
   void dispose() {
     amountController.dispose();
-    txnIdController.dispose();
-    settlementDateController.dispose();
+    amountBeforeMidnightController.dispose();
+    amountAfterMidnightController.dispose();
     notesController.dispose();
   }
 }

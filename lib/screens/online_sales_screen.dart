@@ -70,15 +70,9 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
               row.commission = sale.commission;
             }
             row.netController.text = sale.net.toStringAsFixed(2);
-            if (sale.settlementDate != null) {
-              row.settlementDate = sale.settlementDate;
-              row.settlementDateController.text = DateFormat('d MMM yyyy').format(sale.settlementDate!);
-            }
-            // Note: ordersCount is not stored in the model, so we skip it
             if (sale.notes != null) {
               row.notesController.text = sale.notes!;
             }
-            // Settlement status is not in the model, default to 'Pending'
             row._calculateNet();
             
             if (sale.id != null) {
@@ -209,7 +203,6 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
             gross: saleRow.gross!,
             commission: saleRow.commission,
             net: double.parse(saleRow.netController.text),
-            settlementDate: saleRow.settlementDate,
             notes: saleRow.notesController.text.trim().isEmpty
                 ? null
                 : saleRow.notesController.text.trim(),
@@ -437,83 +430,16 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: sale.netController,
-                    decoration: const InputDecoration(
-                      labelText: 'Net Settlement',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      prefixText: '₹',
-                      filled: true,
-                    ),
-                    readOnly: true,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: sale.ordersCountController,
-                    decoration: const InputDecoration(
-                      labelText: 'Orders Count (optional)',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: sale.settlementStatus,
-                    decoration: const InputDecoration(
-                      labelText: 'Settlement Status',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    items: ['Pending', 'Settled'].map((status) {
-                      return DropdownMenuItem(value: status, child: Text(status));
-                    }).toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        sale.settlementStatus = value;
-                      });
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextButton(
-                    onPressed: () async {
-                      final date = await showDatePicker(
-                        context: context,
-                        initialDate: sale.settlementDate ?? DateTime.now(),
-                        firstDate: DateTime(2020),
-                        lastDate: DateTime(2100),
-                      );
-                      if (date != null) {
-                        setState(() {
-                          sale.settlementDate = date;
-                          sale.settlementDateController.text =
-                              DateFormat('d MMM yyyy').format(date);
-                        });
-                      }
-                    },
-                    child: Text(
-                      sale.settlementDateController.text.isEmpty
-                          ? 'Select Settlement Date'
-                          : sale.settlementDateController.text,
-                    ),
-                  ),
-                ),
-              ],
+            TextField(
+              controller: sale.netController,
+              decoration: const InputDecoration(
+                labelText: 'Net Settlement',
+                border: OutlineInputBorder(),
+                isDense: true,
+                prefixText: '₹',
+                filled: true,
+              ),
+              readOnly: true,
             ),
             const SizedBox(height: 8),
             TextField(
@@ -536,14 +462,10 @@ class OnlineSaleRow {
   final TextEditingController grossController = TextEditingController();
   final TextEditingController commissionController = TextEditingController();
   final TextEditingController netController = TextEditingController();
-  final TextEditingController ordersCountController = TextEditingController();
-  final TextEditingController settlementDateController = TextEditingController();
   final TextEditingController notesController = TextEditingController();
   String? platform;
   double? gross;
   double? commission;
-  DateTime? settlementDate;
-  String? settlementStatus = 'Pending';
   String? id; // Track if this row is saved in database
 
   OnlineSaleRow();
@@ -559,8 +481,6 @@ class OnlineSaleRow {
     grossController.dispose();
     commissionController.dispose();
     netController.dispose();
-    ordersCountController.dispose();
-    settlementDateController.dispose();
     notesController.dispose();
   }
 }

@@ -8,9 +8,7 @@ class Due {
   final String branchId;
   final String party;
   final double amount;
-  final DateTime dueDate;
   final DueType type;
-  final DueStatus status;
   final String? remarks;
   final DateTime? createdAt;
 
@@ -21,9 +19,7 @@ class Due {
     required this.branchId,
     required this.party,
     required this.amount,
-    required this.dueDate,
     required this.type,
-    required this.status,
     this.remarks,
     this.createdAt,
   });
@@ -36,13 +32,7 @@ class Due {
       'branch_id': branchId,
       'party': party,
       'amount': amount,
-      'due_date': dueDate.toIso8601String().split('T')[0],
       'type': type == DueType.receivable ? 'receivable' : 'payable',
-      'status': status == DueStatus.open
-          ? 'open'
-          : status == DueStatus.partiallyPaid
-              ? 'partially_paid'
-              : 'paid',
       'remarks': remarks,
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
     };
@@ -56,15 +46,9 @@ class Due {
       branchId: json['branch_id']?.toString() ?? '',
       party: json['party'] ?? '',
       amount: (json['amount'] as num).toDouble(),
-      dueDate: DateTime.parse(json['due_date']),
       type: json['type'] == 'receivable'
           ? DueType.receivable
           : DueType.payable,
-      status: json['status'] == 'open'
-          ? DueStatus.open
-          : json['status'] == 'partially_paid'
-              ? DueStatus.partiallyPaid
-              : DueStatus.paid,
       remarks: json['remarks'],
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'])

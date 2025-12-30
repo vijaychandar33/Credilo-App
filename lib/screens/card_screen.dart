@@ -86,9 +86,6 @@ class _CardScreenState extends State<CardScreen> {
           final row = CardSaleRow();
           row.amountController.text = sale.amount.toStringAsFixed(2);
           row.amount = sale.amount;
-          if (sale.txnCount != null) {
-            row.txnCountController.text = sale.txnCount.toString();
-          }
           if (sale.notes != null) {
             row.notesController.text = sale.notes!;
           }
@@ -271,9 +268,6 @@ class _CardScreenState extends State<CardScreen> {
             tid: machine.tid,
             machineName: machine.name,
             amount: saleRow.amount!,
-            txnCount: saleRow.txnCountController.text.trim().isEmpty
-                ? null
-                : int.tryParse(saleRow.txnCountController.text.trim()),
             notes: saleRow.notesController.text.trim().isEmpty
                 ? null
                 : saleRow.notesController.text.trim(),
@@ -488,44 +482,25 @@ class _CardScreenState extends State<CardScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: sale.amountController,
-                    decoration: const InputDecoration(
-                      labelText: 'Sale Value',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      prefixText: '₹',
-                    ),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
-                    ],
-                    onChanged: (value) {
-                      setState(() {
-                        sale.amount = value.isEmpty
-                            ? null
-                            : double.tryParse(value);
-                      });
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: sale.txnCountController,
-                    decoration: const InputDecoration(
-                      labelText: 'Transaction Count (optional)',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  ),
-                ),
+            TextField(
+              controller: sale.amountController,
+              decoration: const InputDecoration(
+                labelText: 'Sale Value',
+                border: OutlineInputBorder(),
+                isDense: true,
+                prefixText: '₹',
+              ),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
               ],
+              onChanged: (value) {
+                setState(() {
+                  sale.amount = value.isEmpty
+                      ? null
+                      : double.tryParse(value);
+                });
+              },
             ),
             const SizedBox(height: 8),
             TextField(
@@ -546,7 +521,6 @@ class _CardScreenState extends State<CardScreen> {
 
 class CardSaleRow {
   final TextEditingController amountController = TextEditingController();
-  final TextEditingController txnCountController = TextEditingController();
   final TextEditingController notesController = TextEditingController();
   String? selectedMachineId;
   double? amount;
@@ -558,7 +532,6 @@ class CardSaleRow {
 
   void dispose() {
     amountController.dispose();
-    txnCountController.dispose();
     notesController.dispose();
   }
 }

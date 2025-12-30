@@ -7,6 +7,7 @@ import '../models/due.dart';
 import '../utils/app_colors.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/date_range_utils.dart';
+import '../utils/closing_cycle_service.dart';
 import 'owner_dashboard_detail_screen.dart';
 import 'owner_dashboard_aggregated_detail_screen.dart';
 
@@ -212,18 +213,18 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
     }
   }
 
-  DateRangeSelection _getDateRange() {
-    final result = resolveDateRange(
+  Future<DateRangeSelection> _getDateRange() async {
+    final result = await resolveDateRange(
       _selectedRangeOption,
       customStartDate: _selectedStartDate,
       customEndDate: _selectedEndDate,
     );
     // If null (all time), return today as default for owner dashboard
     if (result == null) {
-      final today = DateTime.now();
+      final businessDate = await ClosingCycleService.getBusinessDate();
       return DateRangeSelection(
-        startDate: DateTime(today.year, today.month, today.day),
-        endDate: DateTime(today.year, today.month, today.day),
+        startDate: DateTime(businessDate.year, businessDate.month, businessDate.day),
+        endDate: DateTime(businessDate.year, businessDate.month, businessDate.day),
       );
     }
     return result;
@@ -256,7 +257,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
         return;
       }
 
-      final dateRange = _getDateRange();
+      final dateRange = await _getDateRange();
       double totalExpenses = 0.0;
       double totalCreditExpenses = 0.0;
       double totalCardSales = 0.0;
@@ -288,8 +289,9 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
           final branchOnlineSales = onlineSales.fold(0.0, (sum, s) => sum + s.net);
           totalOnlineSales += branchOnlineSales;
 
-          final qrPayments = await _dbService.getQrPayments(currentDate, branch.id);
-          totalQrPayments += qrPayments.fold(0.0, (sum, p) => sum + p.amount);
+          // Use stored calculated total instead of calculating on the fly
+          final qrTotal = await _dbService.getQrPaymentCalculatedTotal(currentDate, branch.id);
+          totalQrPayments += qrTotal;
 
           final dues = await _dbService.getDues(currentDate, branch.id);
           // Calculate receivables and payables separately
@@ -360,7 +362,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
         });
         return;
       }
-      final dateRange = _getDateRange();
+      final dateRange = await _getDateRange();
       
       List<Due> allDues = [];
       for (var branch in branchList) {
@@ -586,17 +588,6 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
     final receivables = dues.where((d) => d.type == DueType.receivable).toList();
     final payables = dues.where((d) => d.type == DueType.payable).toList();
 
-    String getStatusText(DueStatus status) {
-      switch (status) {
-        case DueStatus.open:
-          return 'Open';
-        case DueStatus.partiallyPaid:
-          return 'Partially Paid';
-        case DueStatus.paid:
-          return 'Paid';
-      }
-    }
-
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -625,7 +616,6 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                     ...receivables.map((due) => _buildDueRow(
                       due.party,
                       CurrencyFormatter.format(due.amount, decimalDigits: 0),
-                      getStatusText(due.status),
                     )),
                 ],
               ),
@@ -655,7 +645,6 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                     ...payables.map((due) => _buildDueRow(
                       due.party,
                       CurrencyFormatter.format(due.amount, decimalDigits: 0),
-                      getStatusText(due.status),
                     )),
                 ],
               ),
@@ -886,10 +875,11 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
     );
   }
 
-  void _navigateToDetail(DetailScreenType type, String title) {
+  Future<void> _navigateToDetail(DetailScreenType type, String title) async {
     final branches = _getSelectedBranches();
-    final dateRange = _getDateRange();
+    final dateRange = await _getDateRange();
     
+    if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -903,10 +893,11 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
     );
   }
 
-  void _navigateToAggregatedDetail(String title, Map<String, dynamic> data, double totalSales, double totalExpenses, double totalProfit) {
+  Future<void> _navigateToAggregatedDetail(String title, Map<String, dynamic> data, double totalSales, double totalExpenses, double totalProfit) async {
     final branches = _getSelectedBranches();
-    final dateRange = _getDateRange();
+    final dateRange = await _getDateRange();
     
+    if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -923,7 +914,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
     );
   }
 
-  Widget _buildDueRow(String party, String amount, String status) {
+  Widget _buildDueRow(String party, String amount) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
@@ -931,23 +922,6 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
         children: [
           Expanded(child: Text(party)),
           Text(amount, style: const TextStyle(fontWeight: FontWeight.w600)),
-          const SizedBox(width: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: status == 'Open'
-                  ? AppColors.warning.withValues(alpha: 0.2)
-                  : AppColors.success.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Text(
-              status,
-              style: TextStyle(
-                fontSize: 12,
-                color: status == 'Open' ? AppColors.warning : AppColors.success,
-              ),
-            ),
-          ),
         ],
       ),
     );

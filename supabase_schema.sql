@@ -100,7 +100,6 @@ CREATE TABLE card_sales (
   tid TEXT NOT NULL,
   machine_name TEXT NOT NULL,
   amount NUMERIC(12,2) NOT NULL,
-  txn_count INTEGER,
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -125,7 +124,6 @@ CREATE TABLE online_sales (
   gross NUMERIC(12,2) NOT NULL,
   commission NUMERIC(12,2),
   net NUMERIC(12,2) NOT NULL,
-  settlement_date DATE,
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -137,11 +135,79 @@ CREATE TABLE qr_payments (
   user_id UUID REFERENCES users(id),
   branch_id UUID REFERENCES branches(id) ON DELETE CASCADE,
   provider TEXT NOT NULL,
-  amount NUMERIC(12,2) NOT NULL,
-  txn_id TEXT,
-  settlement_date DATE,
+  amount NUMERIC(12,2),
+  amount_before_midnight NUMERIC(12,2),
+  amount_after_midnight NUMERIC(12,2),
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Daily QR payment totals (stores calculated total per day per branch)
+CREATE TABLE daily_qr_totals (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  date DATE NOT NULL,
+  branch_id UUID REFERENCES branches(id) ON DELETE CASCADE,
+  calculated_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(date, branch_id)
+);
+
+-- Enable Row Level Security on daily_qr_totals
+ALTER TABLE daily_qr_totals ENABLE ROW LEVEL SECURITY;
+
+-- Policy: Users can read daily_qr_totals for branches they have access to
+CREATE POLICY "Users can read daily_qr_totals for their branches"
+ON daily_qr_totals
+FOR SELECT
+USING (
+  EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE branch_users.branch_id = daily_qr_totals.branch_id
+    AND branch_users.user_id = auth.uid()
+  )
+);
+
+-- Policy: Users can insert daily_qr_totals for branches they have access to
+CREATE POLICY "Users can insert daily_qr_totals for their branches"
+ON daily_qr_totals
+FOR INSERT
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE branch_users.branch_id = daily_qr_totals.branch_id
+    AND branch_users.user_id = auth.uid()
+  )
+);
+
+-- Policy: Users can update daily_qr_totals for branches they have access to
+CREATE POLICY "Users can update daily_qr_totals for their branches"
+ON daily_qr_totals
+FOR UPDATE
+USING (
+  EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE branch_users.branch_id = daily_qr_totals.branch_id
+    AND branch_users.user_id = auth.uid()
+  )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE branch_users.branch_id = daily_qr_totals.branch_id
+    AND branch_users.user_id = auth.uid()
+  )
+);
+
+-- Policy: Users can delete daily_qr_totals for branches they have access to
+CREATE POLICY "Users can delete daily_qr_totals for their branches"
+ON daily_qr_totals
+FOR DELETE
+USING (
+  EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE branch_users.branch_id = daily_qr_totals.branch_id
+    AND branch_users.user_id = auth.uid()
+  )
 );
 
 -- Dues
@@ -152,9 +218,7 @@ CREATE TABLE dues (
   branch_id UUID REFERENCES branches(id) ON DELETE CASCADE,
   party TEXT NOT NULL,
   amount NUMERIC(12,2) NOT NULL,
-  due_date DATE NOT NULL,
   type TEXT NOT NULL CHECK (type IN ('receivable', 'payable')),
-  status TEXT NOT NULL CHECK (status IN ('open', 'partially_paid', 'paid')),
   remarks TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

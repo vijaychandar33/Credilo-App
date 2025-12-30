@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../widgets/date_selector.dart';
 import '../services/auth_service.dart';
 import '../models/branch.dart';
+import '../utils/closing_cycle_service.dart';
 import 'cash_expense_screen.dart';
 import 'credit_expense_screen.dart';
 import 'cash_balance_screen.dart';
@@ -25,12 +26,37 @@ class FinancialEntryScreen extends StatefulWidget {
 class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
   late DateTime _selectedDate;
   final AuthService _authService = AuthService();
+  bool _canEdit = false;
+  bool _canView = false;
+  bool _isLoadingPermissions = true;
 
   @override
   void initState() {
     super.initState();
-    _selectedDate = DateTime.now();
+    _loadInitialDate();
     _ensureBranchData();
+  }
+
+  Future<void> _loadInitialDate() async {
+    final businessDate = await ClosingCycleService.getBusinessDate();
+    if (mounted) {
+      setState(() {
+        _selectedDate = businessDate;
+      });
+      await _loadPermissions();
+    }
+  }
+
+  Future<void> _loadPermissions() async {
+    final canEdit = await _authService.canEditDate(_selectedDate);
+    final canView = await _authService.canViewDate(_selectedDate);
+    if (mounted) {
+      setState(() {
+        _canEdit = canEdit;
+        _canView = canView;
+        _isLoadingPermissions = false;
+      });
+    }
   }
 
   Future<void> _ensureBranchData() async {
@@ -46,13 +72,15 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
   void _onDateSelected(DateTime date) {
     setState(() {
       _selectedDate = date;
+      _isLoadingPermissions = true;
     });
+    _loadPermissions();
   }
 
   @override
   Widget build(BuildContext context) {
-    final canEdit = _authService.canEditDate(_selectedDate);
-    final canView = _authService.canViewDate(_selectedDate);
+    final canEdit = _canEdit;
+    final canView = _canView;
 
     return Scaffold(
       appBar: AppBar(
@@ -89,7 +117,7 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
             onDateSelected: _onDateSelected,
           ),
           // Access Warning
-          if (!canView)
+          if (!_isLoadingPermissions && !canView)
             Container(
               padding: const EdgeInsets.all(16),
               color: AppColors.warning.withValues(alpha: 0.2),
