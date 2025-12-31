@@ -537,8 +537,8 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
                 ),
               ).then((_) => _loadSuppliers()); // Reload to refresh totals
             },
-            onLongPress: () {
-              // Long press to edit
+            onLongPress: !_authService.isReadOnly() ? () {
+              // Long press to edit (only if not read-only)
               Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -549,7 +549,7 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
                   _loadSuppliers(); // Reload if edited or deleted
                 }
               });
-            },
+            } : null,
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Column(
@@ -674,11 +674,12 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
       appBar: AppBar(
         title: const Text('Suppliers'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.add),
-            tooltip: 'Add Supplier',
-            onPressed: _addSupplier,
-          ),
+          if (!_authService.isReadOnly())
+            IconButton(
+              icon: const Icon(Icons.add),
+              tooltip: 'Add Supplier',
+              onPressed: _addSupplier,
+            ),
         ],
       ),
       body: _isLoading

@@ -36,7 +36,7 @@ CREATE TABLE branch_users (
   branch_id UUID REFERENCES branches(id) ON DELETE CASCADE,
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
   business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
-  role TEXT NOT NULL CHECK (role IN ('business_owner', 'owner', 'manager', 'staff')),
+  role TEXT NOT NULL CHECK (role IN ('business_owner', 'business_owner_read_only', 'owner', 'manager', 'staff')),
   permissions JSONB,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   UNIQUE(branch_id, user_id)
@@ -513,7 +513,7 @@ BEGIN
 END;
 $$;
 
--- Automatically assign all business owners to a new branch when it's created
+-- Automatically assign all business owners (including read-only) to a new branch when it's created
 CREATE OR REPLACE FUNCTION auto_assign_business_owners_to_branch()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -522,16 +522,16 @@ AS $$
 DECLARE
   owner_record RECORD;
 BEGIN
-  -- Get all distinct business owners for this business
+  -- Get all distinct business owners (including read-only) for this business
   FOR owner_record IN
-    SELECT DISTINCT user_id
+    SELECT DISTINCT user_id, role
     FROM branch_users
     WHERE business_id = NEW.business_id
-      AND role = 'business_owner'
+      AND role IN ('business_owner', 'business_owner_read_only')
   LOOP
-    -- Insert branch_user record for each business owner
+    -- Insert branch_user record for each business owner (preserve their role)
     INSERT INTO branch_users (branch_id, user_id, business_id, role)
-    VALUES (NEW.id, owner_record.user_id, NEW.business_id, 'business_owner')
+    VALUES (NEW.id, owner_record.user_id, NEW.business_id, owner_record.role)
     ON CONFLICT (branch_id, user_id) DO NOTHING;
   END LOOP;
   

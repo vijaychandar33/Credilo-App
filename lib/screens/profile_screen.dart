@@ -104,6 +104,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     switch (role) {
       case UserRole.businessOwner:
         return 'Business Owner';
+      case UserRole.businessOwnerReadOnly:
+        return 'Business Owner (Read-Only)';
       case UserRole.owner:
         return 'Owner';
       case UserRole.manager:

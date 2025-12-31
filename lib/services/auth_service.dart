@@ -285,16 +285,57 @@ class AuthService {
       if (userResponse != null) {
         final user = User.fromJson(userResponse);
         
-        // Get user's branches
-        final branchesResponse = await Supabase.instance.client
+        // Check if user is a business owner (including read-only) to load all branches
+        final businessOwnerCheck = await Supabase.instance.client
             .from('branch_users')
-            .select('branches(*)')
-            .eq('user_id', userId);
+            .select('business_id, role')
+            .eq('user_id', userId)
+            .or('role.eq.business_owner,role.eq.business_owner_read_only')
+            .limit(1)
+            .maybeSingle();
+        
+        List<Branch> branches = [];
+        
+        if (businessOwnerCheck != null) {
+          // Business owner or read-only: get all branches for their businesses
+          
+          // Get all businesses where user is business owner (including read-only)
+          final businessAssignments = await Supabase.instance.client
+              .from('branch_users')
+              .select('business_id, role')
+              .eq('user_id', userId)
+              .or('role.eq.business_owner,role.eq.business_owner_read_only');
+          
+          final Set<String> businessIds = (businessAssignments as List)
+              .map((record) => record['business_id'] as String?)
+              .whereType<String>()
+              .toSet();
+          
+          // Get all branches for these businesses
+          for (var bid in businessIds) {
+            final allBranchesResponse = await Supabase.instance.client
+                .from('branches')
+                .select()
+                .eq('business_id', bid);
+            
+            final businessBranches = (allBranchesResponse as List)
+                .map((json) => Branch.fromJson(json))
+                .toList();
+            
+            branches.addAll(businessBranches);
+          }
+        } else {
+          // Regular user: get only assigned branches
+          final branchesResponse = await Supabase.instance.client
+              .from('branch_users')
+              .select('branches(*)')
+              .eq('user_id', userId);
 
-        final branches = (branchesResponse as List)
-            .where((item) => item['branches'] != null)
-            .map((item) => Branch.fromJson(item['branches']))
-            .toList();
+          branches = (branchesResponse as List)
+              .where((item) => item['branches'] != null)
+              .map((item) => Branch.fromJson(item['branches']))
+              .toList();
+        }
 
         await setUser(user, branches);
         // Refresh business owner status
@@ -356,6 +397,11 @@ class AuthService {
     final role = currentRole;
     if (role == null) return false;
     
+    // Business owner read-only cannot edit any date
+    if (role == UserRole.businessOwnerReadOnly) {
+      return false;
+    }
+    
     final businessDate = await ClosingCycleService.getBusinessDate();
     final businessDateOnly = DateTime(businessDate.year, businessDate.month, businessDate.day);
     final dateOnly = DateTime(date.year, date.month, date.day);
@@ -380,8 +426,8 @@ class AuthService {
     final dateOnly = DateTime(date.year, date.month, date.day);
     final yesterday = businessDateOnly.subtract(const Duration(days: 1));
     
-    if (role == UserRole.businessOwner || role == UserRole.owner) {
-      return true;
+    if (role == UserRole.businessOwner || role == UserRole.businessOwnerReadOnly || role == UserRole.owner) {
+      return true; // Business owner, business owner read-only & owner can view any date
     } else if (role == UserRole.manager) {
       return dateOnly == businessDateOnly || dateOnly == yesterday;
     } else if (role == UserRole.staff) {
@@ -392,6 +438,10 @@ class AuthService {
 
   bool canDelete() {
     final role = currentRole;
+    // Business owner read-only cannot delete
+    if (role == UserRole.businessOwnerReadOnly) {
+      return false;
+    }
     return role == UserRole.businessOwner || role == UserRole.owner || role == UserRole.manager;
   }
 
@@ -425,12 +475,16 @@ class AuthService {
     }
   }
 
-  // Check if user can manage users (business owners and owners)
+  // Check if user can manage users (business owners and owners, but not read-only)
   bool canManageUsers() {
     if (_currentUser == null) return false;
 
     // Fast-path: current branch role already tells us
     final role = currentRole;
+    // Business owner read-only cannot manage users
+    if (role == UserRole.businessOwnerReadOnly) {
+      return false;
+    }
     if (role == UserRole.businessOwner || role == UserRole.owner) {
       return true;
     }
@@ -449,14 +503,22 @@ class AuthService {
   // Check if user is a branch owner (has owner or business_owner role in at least one branch)
   bool isBranchOwner() {
     if (_currentUser == null) return false;
-    return _branchUsers.any((bu) => bu.role == UserRole.owner || bu.role == UserRole.businessOwner);
+    return _branchUsers.any((bu) => 
+      bu.role == UserRole.owner || 
+      bu.role == UserRole.businessOwner || 
+      bu.role == UserRole.businessOwnerReadOnly
+    );
   }
 
-  // Get branches where user is an owner or business owner
+  // Get branches where user is an owner or business owner (including read-only)
   List<Branch> get ownerBranches {
     if (_currentUser == null) return [];
     final ownerBranchIds = _branchUsers
-        .where((bu) => bu.role == UserRole.owner || bu.role == UserRole.businessOwner)
+        .where((bu) => 
+          bu.role == UserRole.owner || 
+          bu.role == UserRole.businessOwner || 
+          bu.role == UserRole.businessOwnerReadOnly
+        )
         .map((bu) => bu.branchId)
         .toList();
     return _userBranches.where((b) => ownerBranchIds.contains(b.id)).toList();
@@ -476,7 +538,24 @@ class AuthService {
   }
 
   bool canViewAllBranches() {
-    return currentRole == UserRole.businessOwner || currentRole == UserRole.owner;
+    return currentRole == UserRole.businessOwner || 
+           currentRole == UserRole.businessOwnerReadOnly || 
+           currentRole == UserRole.owner;
+  }
+
+  // Check if user is read-only (cannot edit or delete)
+  bool isReadOnly() {
+    final role = currentRole;
+    return role == UserRole.businessOwnerReadOnly;
+  }
+
+  // Check if user is a business owner (including read-only) - for UI access purposes
+  bool isBusinessOwnerOrReadOnly() {
+    if (_currentUser == null) return false;
+    return _branchUsers.any((bu) => 
+      bu.role == UserRole.businessOwner || 
+      bu.role == UserRole.businessOwnerReadOnly
+    );
   }
 
   Future<void> logout() async {

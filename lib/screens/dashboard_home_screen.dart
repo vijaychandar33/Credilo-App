@@ -189,6 +189,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> with WidgetsB
     final branches = _authService.userBranches;
     final isBusinessOwner = _authService.canManageUsers();
     final isBranchOwner = _authService.isBranchOwner();
+    final isBusinessOwnerOrReadOnly = _authService.isBusinessOwnerOrReadOnly();
     
     // Show owner dashboard icon if user is a business owner OR branch owner
     final canAccessOwnerDashboard = isBusinessOwner || isBranchOwner;
@@ -213,7 +214,8 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> with WidgetsB
               },
               tooltip: 'Analytics Dashboard',
             ),
-          if (isBusinessOwner)
+          // Show supplier management for business owners (including read-only)
+          if (isBusinessOwnerOrReadOnly)
             IconButton(
               icon: const Icon(Icons.store_mall_directory),
               onPressed: () {
@@ -253,6 +255,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> with WidgetsB
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Branch Management - Show for all users, but with different options
+                      // Only full business owners can add branches (not read-only)
                       _buildBranchManagement(branches, isBusinessOwner),
                       const SizedBox(height: 16),
 

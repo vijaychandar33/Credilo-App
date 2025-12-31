@@ -308,22 +308,24 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
       appBar: AppBar(
         title: Text(widget.supplier.name),
         actions: [
-          if (_selectedIds.isNotEmpty)
+          if (!_authService.isReadOnly()) ...[
+            if (_selectedIds.isNotEmpty)
+              IconButton(
+                icon: const Icon(Icons.check_circle),
+                onPressed: _isUpdating ? null : _markAsPaid,
+                tooltip: 'Mark as Paid',
+              ),
             IconButton(
-              icon: const Icon(Icons.check_circle),
-              onPressed: _isUpdating ? null : _markAsPaid,
-              tooltip: 'Mark as Paid',
+              icon: const Icon(Icons.edit),
+              onPressed: _editSupplier,
+              tooltip: 'Edit Supplier',
             ),
-          IconButton(
-            icon: const Icon(Icons.edit),
-            onPressed: _editSupplier,
-            tooltip: 'Edit Supplier',
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline),
-            onPressed: _deleteSupplier,
-            tooltip: 'Delete Supplier',
-          ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline),
+              onPressed: _deleteSupplier,
+              tooltip: 'Delete Supplier',
+            ),
+          ],
         ],
       ),
       body: _isLoading

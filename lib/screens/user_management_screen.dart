@@ -71,13 +71,13 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       
       try {
         if (_isBusinessOwner) {
-          // Business owner: get all branches for their businesses
+          // Business owner (including read-only): get all branches for their businesses
           Set<String> businessIds = {};
           final ownerAssignments = await Supabase.instance.client
               .from('branch_users')
               .select('business_id')
               .eq('user_id', currentUser.id)
-              .eq('role', 'business_owner');
+              .or('role.eq.business_owner,role.eq.business_owner_read_only');
           
           businessIds = (ownerAssignments as List)
               .map((record) => record['business_id'] as String?)
@@ -314,6 +314,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     UserRole? selectedRole;
     bool obscurePassword = true;
     bool makeBusinessOwner = false;
+    bool makeBusinessOwnerReadOnly = false;
 
     showDialog(
       context: context,
@@ -373,16 +374,38 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     onChanged: (value) {
                       setDialogState(() {
                         makeBusinessOwner = value ?? false;
-                        // If making business owner, set role to owner and select first branch
-                        if (makeBusinessOwner && _allBranches.isNotEmpty) {
-                          selectedBranch = _allBranches.first;
-                          selectedRole = UserRole.owner;
+                        // If making business owner, disable read-only and set role to owner
+                        if (makeBusinessOwner) {
+                          makeBusinessOwnerReadOnly = false;
+                          if (_allBranches.isNotEmpty) {
+                            selectedBranch = _allBranches.first;
+                            selectedRole = UserRole.owner;
+                          }
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  CheckboxListTile(
+                    title: const Text('Make Business Owner (Read-Only)'),
+                    subtitle: const Text('User will have read-only access to all branches but cannot manage users'),
+                    value: makeBusinessOwnerReadOnly,
+                    onChanged: (value) {
+                      setDialogState(() {
+                        makeBusinessOwnerReadOnly = value ?? false;
+                        // If making read-only business owner, disable full business owner
+                        if (makeBusinessOwnerReadOnly) {
+                          makeBusinessOwner = false;
+                          if (_allBranches.isNotEmpty) {
+                            selectedBranch = _allBranches.first;
+                            selectedRole = UserRole.owner;
+                          }
                         }
                       });
                     },
                   ),
                 ],
-                if (!makeBusinessOwner) ...[
+                if (!makeBusinessOwner && !makeBusinessOwnerReadOnly) ...[
                 const SizedBox(height: 12),
                 DropdownButtonFormField<Branch>(
                   initialValue: selectedBranch,
@@ -410,12 +433,10 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     border: OutlineInputBorder(),
                   ),
                   items: (_isBusinessOwner 
-                    ? UserRole.values.where((role) => role != UserRole.businessOwner)
+                    ? [UserRole.owner, UserRole.manager, UserRole.staff]
                     : [UserRole.manager, UserRole.staff]
                   ).map((role) {
-                    String roleName = role.toString().split('.').last;
-                    // Capitalize first letter
-                    roleName = roleName[0].toUpperCase() + roleName.substring(1);
+                    String roleName = _formatRoleName(role);
                     return DropdownMenuItem(
                       value: role,
                       child: Text(roleName),
@@ -443,7 +464,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     !emailController.text.contains('@') ||
                     passwordController.text.isEmpty ||
                     passwordController.text.length < 6 ||
-                    (!makeBusinessOwner && (selectedBranch == null || selectedRole == null))) {
+                    (!makeBusinessOwner && !makeBusinessOwnerReadOnly && (selectedBranch == null || selectedRole == null))) {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
@@ -459,9 +480,10 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                   nameController.text,
                   emailController.text,
                   passwordController.text,
-                  makeBusinessOwner ? _allBranches.first : selectedBranch!,
-                  makeBusinessOwner ? UserRole.owner : selectedRole!,
+                  (makeBusinessOwner || makeBusinessOwnerReadOnly) ? _allBranches.first : selectedBranch!,
+                  (makeBusinessOwner || makeBusinessOwnerReadOnly) ? UserRole.owner : selectedRole!,
                   makeBusinessOwner: makeBusinessOwner,
+                  makeBusinessOwnerReadOnly: makeBusinessOwnerReadOnly,
                 );
                 if (context.mounted) {
                   Navigator.pop(context);
@@ -482,6 +504,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     Branch branch,
     UserRole role, {
     bool makeBusinessOwner = false,
+    bool makeBusinessOwnerReadOnly = false,
   }) async {
     try {
       final supabase = Supabase.instance.client;
@@ -662,8 +685,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         }
       }
 
-      // Step 3: If making business owner, assign business_owner role to all branches of the business
-      if (makeBusinessOwner) {
+      // Step 3: If making business owner (full or read-only), assign role to all branches of the business
+      if (makeBusinessOwner || makeBusinessOwnerReadOnly) {
         try {
           // Get business ID from the branch
           final branchData = await supabase
@@ -673,6 +696,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
               .single();
           
           final businessId = branchData['business_id'] as String;
+          final roleToAssign = makeBusinessOwner ? 'business_owner' : 'business_owner_read_only';
           
           // Get all branches for this business
           final allBranches = await supabase
@@ -680,7 +704,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
               .select('id')
               .eq('business_id', businessId);
           
-          // Assign business_owner role to user for all branches of this business
+          // Assign role to user for all branches of this business
           for (var branchItem in allBranches as List) {
             final branchId = branchItem['id'] as String;
             
@@ -693,26 +717,27 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 .maybeSingle();
             
             if (existingBranchUser != null) {
-              // Update existing record to business_owner role
+              // Update existing record to the selected role
               await supabase
                   .from('branch_users')
                   .update({
-                    'role': 'business_owner',
+                    'role': roleToAssign,
                     'business_id': businessId,
                   })
                   .eq('id', existingBranchUser['id']);
             } else {
-              // Insert new record with business_owner role
+              // Insert new record with the selected role
               await supabase.from('branch_users').insert({
                 'user_id': userId,
                 'branch_id': branchId,
                 'business_id': businessId,
-                'role': 'business_owner',
+                'role': roleToAssign,
               });
             }
           }
           
-          debugPrint('Made user $userId a business owner of business $businessId (assigned to ${(allBranches as List).length} branches)');
+          final roleName = makeBusinessOwner ? 'business owner' : 'business owner (read-only)';
+          debugPrint('Made user $userId a $roleName of business $businessId (assigned to ${(allBranches as List).length} branches)');
         } catch (e) {
           debugPrint('Error making user business owner: $e');
           // Continue - user was still created and assigned to branch
@@ -806,6 +831,33 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       final role = (branchData['role'] as String).toLowerCase();
       return role == 'business_owner';
     });
+  }
+
+  // Check if a user is a business owner read-only (has business_owner_read_only role in any branch)
+  bool _isUserBusinessOwnerReadOnly(List<Map<String, dynamic>> userBranches) {
+    // Check if user has business_owner_read_only role in any branch
+    return userBranches.any((branchData) {
+      final role = (branchData['role'] as String).toLowerCase();
+      return role == 'business_owner_read_only';
+    });
+  }
+
+  String _formatRoleName(UserRole role) {
+    String roleName = role.toString().split('.').last;
+    // Convert camelCase to Title Case with spaces
+    roleName = roleName.replaceAllMapped(
+      RegExp(r'([A-Z])'),
+      (match) => ' ${match.group(1)}',
+    ).trim();
+    // Capitalize first letter
+    if (roleName.isNotEmpty) {
+      roleName = roleName[0].toUpperCase() + roleName.substring(1);
+    }
+    // Handle special case for businessOwnerReadOnly
+    if (role == UserRole.businessOwnerReadOnly) {
+      return 'Business Owner (Read-Only)';
+    }
+    return roleName;
   }
 
   // Remove user from all branches
@@ -1063,6 +1115,12 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     }
 
     bool makeBusinessOwner = isBusinessOwner;
+    // Check if user is business owner read-only
+    bool isBusinessOwnerReadOnly = currentBranches.any((branchData) {
+      final role = (branchData['role'] as String).toLowerCase();
+      return role == 'business_owner_read_only';
+    });
+    bool makeBusinessOwnerReadOnly = isBusinessOwnerReadOnly;
 
     showDialog(
       context: context,
@@ -1097,6 +1155,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                         setDialogState(() {
                           makeBusinessOwner = value ?? false;
                           if (makeBusinessOwner) {
+                            makeBusinessOwnerReadOnly = false;
                             // Assign business_owner role to all branches
                             for (var branch in _allBranches) {
                               branchAssignments[branch.id] = {
@@ -1109,8 +1168,30 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                         });
                       },
                     ),
+                    const SizedBox(height: 8),
+                    CheckboxListTile(
+                      title: const Text('Make Business Owner (Read-Only)'),
+                      subtitle: const Text('User will have read-only access to all branches but cannot manage users'),
+                      value: makeBusinessOwnerReadOnly,
+                      onChanged: (value) {
+                        setDialogState(() {
+                          makeBusinessOwnerReadOnly = value ?? false;
+                          if (makeBusinessOwnerReadOnly) {
+                            makeBusinessOwner = false;
+                            // Assign business_owner_read_only role to all branches
+                            for (var branch in _allBranches) {
+                              branchAssignments[branch.id] = {
+                                'branch': branch,
+                                'role': 'business_owner_read_only',
+                                'branch_user_id': branchAssignments[branch.id]?['branch_user_id'],
+                              };
+                            }
+                          }
+                        });
+                      },
+                    ),
                   ],
-                  if (!makeBusinessOwner) ...[
+                  if (!makeBusinessOwner && !makeBusinessOwnerReadOnly) ...[
                     const SizedBox(height: 16),
                     const Text(
                       'Branch Assignments:',
@@ -1178,11 +1259,15 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                     ),
                                     isExpanded: true,
                                     items: (_isBusinessOwner 
-                                      ? UserRole.values.where((role) => role != UserRole.businessOwner)
+                                      ? [
+                                          UserRole.owner,
+                                          UserRole.businessOwnerReadOnly, // Show right after Owner
+                                          UserRole.manager,
+                                          UserRole.staff
+                                        ].where((role) => role != UserRole.businessOwner)
                                       : [UserRole.manager, UserRole.staff]
                                     ).map((role) {
-                                      String roleName = role.toString().split('.').last;
-                                      roleName = roleName[0].toUpperCase() + roleName.substring(1);
+                                      String roleName = _formatRoleName(role);
                                       return DropdownMenuItem(
                                         value: role,
                                         child: Text(roleName),
@@ -1217,7 +1302,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
             ),
             ElevatedButton(
               onPressed: () async {
-                if (makeBusinessOwner) {
+                if (makeBusinessOwner || makeBusinessOwnerReadOnly) {
                   // Get business ID from first branch
                   if (_allBranches.isNotEmpty) {
                     try {
@@ -1228,6 +1313,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                           .single();
                       
                       final businessId = branchData['business_id'] as String;
+                      final roleToAssign = makeBusinessOwner ? 'business_owner' : 'business_owner_read_only';
                       
                       // Get all branches for this business
                       final allBranches = await Supabase.instance.client
@@ -1235,7 +1321,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                           .select('id')
                           .eq('business_id', businessId);
                       
-                      // Assign business_owner role to user for all branches of this business
+                      // Assign role to user for all branches of this business
                       for (var branchItem in allBranches as List) {
                         final branchId = branchItem['id'] as String;
                         
@@ -1248,29 +1334,30 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                             .maybeSingle();
                         
                         if (existingBranchUser != null) {
-                          // Update existing record to business_owner role
+                          // Update existing record to the selected role
                           await Supabase.instance.client
                               .from('branch_users')
                               .update({
-                                'role': 'business_owner',
+                                'role': roleToAssign,
                                 'business_id': businessId,
                               })
                               .eq('id', existingBranchUser['id']);
                         } else {
-                          // Insert new record with business_owner role
+                          // Insert new record with the selected role
                           await Supabase.instance.client.from('branch_users').insert({
                             'user_id': user.id,
                             'branch_id': branchId,
                             'business_id': businessId,
-                            'role': 'business_owner',
+                            'role': roleToAssign,
                           });
                         }
                       }
                       
                       if (context.mounted) {
+                        final roleName = makeBusinessOwner ? 'business owner' : 'business owner (read-only)';
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('User is now a business owner'),
+                          SnackBar(
+                            content: Text('User is now a $roleName'),
                             backgroundColor: AppColors.success,
                           ),
                         );
@@ -1312,6 +1399,70 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     try {
       final supabase = Supabase.instance.client;
 
+      // Check if any assignment is business_owner_read_only - if so, assign to all branches
+      bool hasReadOnlyBusinessOwner = false;
+      String? businessIdForReadOnly;
+      
+      for (var entry in newAssignments.entries) {
+        final assignment = entry.value;
+        final role = assignment['role'] as String;
+        if (role == 'business_owner_read_only') {
+          hasReadOnlyBusinessOwner = true;
+          final branchId = entry.key;
+          final branchData = await supabase
+              .from('branches')
+              .select('business_id')
+              .eq('id', branchId)
+              .single();
+          businessIdForReadOnly = branchData['business_id'] as String;
+          break; // We only need the business ID once
+        }
+      }
+      
+      // If business_owner_read_only is assigned, assign to all branches of the business
+      if (hasReadOnlyBusinessOwner && businessIdForReadOnly != null) {
+        // Get all branches for this business
+        final allBranches = await supabase
+            .from('branches')
+            .select('id')
+            .eq('business_id', businessIdForReadOnly);
+        
+        // Assign business_owner_read_only role to user for all branches
+        for (var branchItem in allBranches as List) {
+          final branchId = branchItem['id'] as String;
+          
+          // Check if user is already assigned to this branch
+          final existingBranchUser = await supabase
+              .from('branch_users')
+              .select()
+              .eq('user_id', userId)
+              .eq('branch_id', branchId)
+              .maybeSingle();
+          
+          if (existingBranchUser != null) {
+            // Update existing record to business_owner_read_only role
+            await supabase
+                .from('branch_users')
+                .update({
+                  'role': 'business_owner_read_only',
+                  'business_id': businessIdForReadOnly,
+                })
+                .eq('id', existingBranchUser['id']);
+          } else {
+            // Insert new record with business_owner_read_only role
+            await supabase.from('branch_users').insert({
+              'user_id': userId,
+              'branch_id': branchId,
+              'business_id': businessIdForReadOnly,
+              'role': 'business_owner_read_only',
+            });
+          }
+        }
+        
+        debugPrint('Updated user $userId to business owner (read-only) for all branches in business $businessIdForReadOnly');
+        return; // Exit early since we've handled all branches
+      }
+
       // Create a map of old assignments by branch_id
       final Map<String, Map<String, dynamic>> oldAssignmentsMap = {};
       for (var old in oldAssignments) {
@@ -1319,11 +1470,14 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         oldAssignmentsMap[branch.id] = old;
       }
 
-      // Process each branch
+      // Process each branch (for non-business_owner_read_only roles)
       for (var entry in newAssignments.entries) {
         final branchId = entry.key;
         final assignment = entry.value;
         final role = assignment['role'] as String;
+        
+        // Skip if this is business_owner_read_only (already handled above)
+        if (role == 'business_owner_read_only') continue;
 
         // Get business_id from branch
         final branchData = await supabase
@@ -1449,50 +1603,54 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _users.isEmpty
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(32.0),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                        Icon(
-                          Icons.people_outline,
-                          size: 64,
-                          color: AppColors.textSecondary,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'No users found',
-                          style: TextStyle(
-                            fontSize: 18,
+      body: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.only(bottom: 12),
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _users.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                          Icon(
+                            Icons.people_outline,
+                            size: 64,
                             color: AppColors.textSecondary,
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Tap the + icon to add a user',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: AppColors.textTertiary,
+                          const SizedBox(height: 16),
+                          Text(
+                            'No users found',
+                            style: TextStyle(
+                              fontSize: 18,
+                              color: AppColors.textSecondary,
+                            ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 8),
+                          Text(
+                            'Tap the + icon to add a user',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: AppColors.textTertiary,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                )
-              : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _users.length,
-                    itemBuilder: (context, index) {
+                  )
+                : ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _users.length,
+                      itemBuilder: (context, index) {
                       final userData = _users[index];
                       final user = userData['user'] as User;
                       final branches = userData['branches'] as List<Map<String, dynamic>>;
                       
                       // Check if user is a business owner or owner
                       final isUserBusinessOwner = _isUserBusinessOwner(branches);
+                      final isUserBusinessOwnerReadOnly = _isUserBusinessOwnerReadOnly(branches);
                       final isUserOwner = branches.any((b) => 
                         (b['role'] as String).toLowerCase() == 'owner' && 
                         (b['role'] as String).toLowerCase() != 'business_owner'
@@ -1504,7 +1662,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                       
                       // For owner-only users, hide edit/delete for business_owner and owner roles
                       final canEditUser = _isBusinessOwner || (!isUserBusinessOwner && !isUserOwner);
-                      final canDeleteUser = _isBusinessOwner && isUserBusinessOwner && !isCurrentUser;
+                      // Show delete button for business owners (full) and business owner read-only (not self, only if current user is business owner)
+                      final canDeleteUser = _isBusinessOwner && (isUserBusinessOwner || isUserBusinessOwnerReadOnly) && !isCurrentUser;
 
                       return Card(
                         margin: const EdgeInsets.only(bottom: 12),
@@ -1534,17 +1693,20 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                   },
                                   tooltip: 'Edit Branch and Role',
                                 ),
-                              // Show user-level delete button for business owners (not self, only if current user is business owner)
+                              // Show user-level delete button for business owners (full and read-only) (not self, only if current user is business owner)
                               if (canDeleteUser)
                                 IconButton(
                                   icon: const Icon(Icons.delete, color: AppColors.error),
                                   onPressed: () {
+                                    final roleType = isUserBusinessOwnerReadOnly 
+                                        ? 'Business Owner (Read-Only)' 
+                                        : 'Business Owner';
                                     showDialog(
                                       context: context,
                                       builder: (context) => AlertDialog(
-                                        title: const Text('Delete Business Owner'),
+                                        title: Text('Delete $roleType'),
                                         content: Text(
-                                          'Remove ${user.name} from all branches? This will remove their business owner status.',
+                                          'Remove ${user.name} from all branches? This will remove their $roleType status.',
                                         ),
                                         actions: [
                                           TextButton(
@@ -1576,12 +1738,14 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
                             final branchRole = role.toLowerCase();
                             final isBranchBusinessOwner = branchRole == 'business_owner';
+                            final isBranchBusinessOwnerReadOnly = branchRole == 'business_owner_read_only';
                             final isBranchOwner = branchRole == 'owner';
-                            // Hide branch delete buttons for business owners (they have complete delete button)
+                            // Hide branch delete buttons for business owners (full and read-only) (they have complete delete button)
                             // Also hide for owners and current user
                             final canDeleteBranch = !isCurrentUser && 
-                              !isUserBusinessOwner && // Don't show branch delete for business owners
-                              (_isBusinessOwner || (!isBranchBusinessOwner && !isBranchOwner));
+                              !isUserBusinessOwner && // Don't show branch delete for business owners (full)
+                              !isUserBusinessOwnerReadOnly && // Don't show branch delete for business owners (read-only)
+                              (_isBusinessOwner || (!isBranchBusinessOwner && !isBranchBusinessOwnerReadOnly && !isBranchOwner));
                             
                             return ListTile(
                               title: Text(branch.name),
@@ -1630,7 +1794,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                         ),
                       );
                     },
-            ),
+                  ),
+      ),
     );
   }
 }

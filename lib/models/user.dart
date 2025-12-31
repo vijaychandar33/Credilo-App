@@ -1,4 +1,4 @@
-enum UserRole { businessOwner, owner, manager, staff }
+enum UserRole { businessOwner, businessOwnerReadOnly, owner, manager, staff }
 
 class User {
   final String id;
