@@ -5,8 +5,8 @@ class ClosingCycleService {
   static const String _keyClosingHour = 'closing_hour';
   static const String _keyClosingMinute = 'closing_minute';
 
-  // Default closing time is 12 AM (midnight)
-  static const int defaultClosingHour = 0;
+  // Default closing time is 1:00 AM (when custom closing is enabled)
+  static const int defaultClosingHour = 1;
   static const int defaultClosingMinute = 0;
 
   /// Get whether custom closing time is enabled
@@ -16,9 +16,21 @@ class ClosingCycleService {
   }
 
   /// Set whether custom closing time is enabled
+  /// When enabling, sets default closing time to 1:00 AM if not already set
   static Future<void> setCustomClosingEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyUseCustomClosing, enabled);
+    
+    // When enabling, set default to 1:00 AM if not already set
+    if (enabled) {
+      final currentHour = prefs.getInt(_keyClosingHour);
+      
+      // If closing time is 12:00 AM (hour 0) or not set, set to 1:00 AM
+      if (currentHour == null || currentHour == 0) {
+        await prefs.setInt(_keyClosingHour, defaultClosingHour);
+        await prefs.setInt(_keyClosingMinute, defaultClosingMinute);
+      }
+    }
   }
 
   /// Get the closing hour (0-23)

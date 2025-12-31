@@ -477,24 +477,24 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
             ),
             const SizedBox(height: 8),
             TextField(
-              controller: due.amountController,
-              decoration: const InputDecoration(
-                labelText: 'Amount',
-                border: OutlineInputBorder(),
-                isDense: true,
-                prefixText: '₹',
-              ),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
-              ],
-              onChanged: (value) {
-                setState(() {
-                  due.amount = value.isEmpty
-                      ? null
-                      : double.tryParse(value);
-                });
-              },
+                    controller: due.amountController,
+                    decoration: const InputDecoration(
+                      labelText: 'Amount',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      prefixText: '₹',
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
+                    ],
+                    onChanged: (value) {
+                      setState(() {
+                        due.amount = value.isEmpty
+                            ? null
+                            : double.tryParse(value);
+                      });
+                    },
             ),
             const SizedBox(height: 8),
             TextField(

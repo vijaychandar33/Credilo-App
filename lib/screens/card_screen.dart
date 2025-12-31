@@ -483,24 +483,24 @@ class _CardScreenState extends State<CardScreen> {
             ),
             const SizedBox(height: 8),
             TextField(
-              controller: sale.amountController,
-              decoration: const InputDecoration(
-                labelText: 'Sale Value',
-                border: OutlineInputBorder(),
-                isDense: true,
-                prefixText: '₹',
-              ),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
-              ],
-              onChanged: (value) {
-                setState(() {
-                  sale.amount = value.isEmpty
-                      ? null
-                      : double.tryParse(value);
-                });
-              },
+                    controller: sale.amountController,
+                    decoration: const InputDecoration(
+                      labelText: 'Sale Value',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      prefixText: '₹',
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
+                    ],
+                    onChanged: (value) {
+                      setState(() {
+                        sale.amount = value.isEmpty
+                            ? null
+                            : double.tryParse(value);
+                      });
+                    },
             ),
             const SizedBox(height: 8),
             TextField(

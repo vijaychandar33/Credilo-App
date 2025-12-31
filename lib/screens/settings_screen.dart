@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../utils/app_colors.dart';
 import '../services/auth_service.dart';
+import '../services/database_service.dart';
 import '../models/user.dart';
 import '../utils/closing_cycle_service.dart';
 import 'profile_screen.dart';
@@ -16,6 +17,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final AuthService authService = AuthService();
+  final DatabaseService _dbService = DatabaseService();
   bool _useCustomClosing = false;
   int _closingHour = 0;
   int _closingMinute = 0;
@@ -32,8 +34,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _isLoading = true;
     });
     final useCustom = await ClosingCycleService.isCustomClosingEnabled();
-    final hour = await ClosingCycleService.getClosingHour();
+    var hour = await ClosingCycleService.getClosingHour();
     final minute = await ClosingCycleService.getClosingMinute();
+    
+    // Migrate 12:00 AM (hour 0) to 1:00 AM if custom closing is enabled
+    if (useCustom && hour == 0) {
+      hour = 1;
+      await ClosingCycleService.setClosingTime(hour, minute);
+    }
+    
     setState(() {
       _useCustomClosing = useCustom;
       _closingHour = hour;
@@ -43,17 +52,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _showTimePicker() async {
+    // Ensure initial time is valid (1:00 AM - 11:00 PM)
+    final initialHour = _closingHour == 0 ? 1 : _closingHour;
+    final initialTime = TimeOfDay(hour: initialHour, minute: _closingMinute);
+    
     final TimeOfDay? picked = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay(hour: _closingHour, minute: _closingMinute),
-      helpText: 'Select closing time',
+      initialTime: initialTime,
+      helpText: 'Select closing time (1:00 AM - 11:00 PM)',
     );
+    
     if (picked != null) {
-      setState(() {
-        _closingHour = picked.hour;
-        _closingMinute = picked.minute;
-      });
-      await ClosingCycleService.setClosingTime(_closingHour, _closingMinute);
+      // Validate: Must be between 1:00 AM and 11:00 PM (hours 1-23)
+      if (picked.hour == 0) {
+        // 12:00 AM is not allowed
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Closing time cannot be 12:00 AM. Please select a time between 1:00 AM and 11:00 PM.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+        return;
+      }
+      
+      // Hours 1-23 are valid (1:00 AM to 11:00 PM)
+      if (picked.hour >= 1 && picked.hour <= 23) {
+        setState(() {
+          _closingHour = picked.hour;
+          _closingMinute = picked.minute;
+        });
+        await ClosingCycleService.setClosingTime(_closingHour, _closingMinute);
+      } else {
+        // This shouldn't happen with standard time picker, but handle it anyway
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please select a time between 1:00 AM and 11:00 PM.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 
@@ -64,9 +103,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(
         title: const Text('Settings'),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
           // Account Section
           _buildSectionHeader('Account'),
           Card(
@@ -157,10 +198,87 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onChanged: _isLoading
                       ? null
                       : (value) async {
-                          setState(() {
-                            _useCustomClosing = value;
-                          });
-                          await ClosingCycleService.setCustomClosingEnabled(value);
+                          // If enabling, allow it and reload settings to get default time
+                          if (value) {
+                            setState(() {
+                              _useCustomClosing = value;
+                            });
+                            await ClosingCycleService.setCustomClosingEnabled(value);
+                            // Reload settings to get the default 1:00 AM time if it was set
+                            await _loadSettings();
+                            return;
+                          }
+
+                          // If disabling, check for data that would be affected
+                          if (!value && _useCustomClosing) {
+                            // Show loading indicator
+                            if (!mounted) return;
+                            showDialog(
+                              context: context,
+                              barrierDismissible: false,
+                              builder: (context) => const Center(
+                                child: CircularProgressIndicator(),
+                              ),
+                            );
+
+                            try {
+                              // Get all branch IDs the user has access to
+                              final branches = authService.userBranches;
+                              final branchIds = branches.map((b) => b.id).toList();
+
+                              // Check if there's any data after midnight
+                              final hasData = await _dbService.hasDataAfterMidnight(branchIds);
+
+                              if (!mounted) return;
+                              Navigator.pop(context); // Close loading dialog
+
+                              if (hasData) {
+                                // Show error dialog
+                                if (!mounted) return;
+                                await showDialog(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    title: const Text('Cannot Disable Custom Closing'),
+                                    content: const Text(
+                                      'You cannot disable custom closing cycle because there is data recorded between 12:00 AM and your custom closing time. Disabling it would cause data inconsistencies.\n\n'
+                                      'Please ensure all entries between 12:00 AM and the closing time are removed or migrated before disabling this feature.',
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context),
+                                        child: const Text('OK'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                // Don't change the toggle state
+                                return;
+                              }
+
+                              // No data found, allow disabling
+                              setState(() {
+                                _useCustomClosing = value;
+                              });
+                              await ClosingCycleService.setCustomClosingEnabled(value);
+                            } catch (e) {
+                              if (!mounted) return;
+                              Navigator.pop(context); // Close loading dialog
+                              // Show error dialog
+                              await showDialog(
+                                context: context,
+                                builder: (context) => AlertDialog(
+                                  title: const Text('Error'),
+                                  content: Text('An error occurred while checking data: $e'),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      child: const Text('OK'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }
+                          }
                         },
                 ),
                 if (_useCustomClosing) ...[
@@ -235,6 +353,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
         ],
+        ),
       ),
     );
   }

@@ -135,13 +135,13 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
               // Legacy: use single amount field
               if (payment.amount != null) {
                 row.amountController.text = payment.amount!.toStringAsFixed(2);
-                row.amount = payment.amount;
+            row.amount = payment.amount;
               } else if (payment.amountBeforeMidnight != null || payment.amountAfterMidnight != null) {
                 // Migrate old data: combine the two amounts
                 final total = (payment.amountBeforeMidnight ?? 0) + (payment.amountAfterMidnight ?? 0);
                 row.amountController.text = total.toStringAsFixed(2);
                 row.amount = total;
-              }
+            }
             }
             
             if (payment.notes != null) {
@@ -222,7 +222,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
   double _getTotalPaymentsSync() {
     if (!_useCustomClosing) {
       // Simple sum when custom closing is disabled
-      return _payments.fold(0.0, (sum, payment) => sum + (payment.amount ?? 0));
+    return _payments.fold(0.0, (sum, payment) => sum + (payment.amount ?? 0));
     }
     
     // When custom closing is enabled, calculate current day's amounts
@@ -399,7 +399,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
 
       // Only reload data if we successfully saved at least one payment
       if (savedCount > 0) {
-        await _loadData();
+      await _loadData();
         
         // Calculate and store the total in the database
         final calculatedTotal = await _getTotalPayments();
@@ -537,12 +537,12 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                             )
                           : Text(
                               CurrencyFormatter.format(_getTotalPaymentsSync()),
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Theme.of(context).colorScheme.primary,
-                              ),
-                            ),
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -749,27 +749,27 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                 },
               ),
             ] else ...[
-              TextField(
-                controller: payment.amountController,
-                decoration: const InputDecoration(
-                  labelText: 'Amount',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                  prefixText: '₹',
-                ),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
-                ],
-                onChanged: (value) {
-                  setState(() {
-                    payment.amount = value.isEmpty
-                        ? null
-                        : double.tryParse(value);
-                  });
-                },
+            TextField(
+              controller: payment.amountController,
+              decoration: const InputDecoration(
+                labelText: 'Amount',
+                border: OutlineInputBorder(),
+                isDense: true,
+                prefixText: '₹',
               ),
-            ],
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  payment.amount = value.isEmpty
+                      ? null
+                      : double.tryParse(value);
+                });
+              },
+            ),
+              ],
             const SizedBox(height: 8),
             TextField(
               controller: payment.notesController,

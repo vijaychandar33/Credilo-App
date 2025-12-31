@@ -431,15 +431,15 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
             ),
             const SizedBox(height: 8),
             TextField(
-              controller: sale.netController,
-              decoration: const InputDecoration(
-                labelText: 'Net Settlement',
-                border: OutlineInputBorder(),
-                isDense: true,
-                prefixText: '₹',
-                filled: true,
-              ),
-              readOnly: true,
+                    controller: sale.netController,
+                    decoration: const InputDecoration(
+                      labelText: 'Net Settlement',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      prefixText: '₹',
+                      filled: true,
+                    ),
+                    readOnly: true,
             ),
             const SizedBox(height: 8),
             TextField(

@@ -4,6 +4,7 @@ import '../models/user.dart';
 import '../models/branch.dart';
 import '../models/branch_user.dart';
 import '../utils/closing_cycle_service.dart';
+import 'database_service.dart';
 
 class AuthService {
   static final AuthService _instance = AuthService._internal();
@@ -55,10 +56,46 @@ class AuthService {
       if (_branchUsers.isNotEmpty) {
         debugPrint('Branch user roles: ${_branchUsers.map((bu) => '${bu.branchId}: ${bu.role}').join(", ")}');
       }
+      
+      // Check if custom closing should be auto-enabled based on existing data
+      await _checkAndAutoEnableCustomClosing(branches);
     }
     
     // Clear business owner cache so it gets refreshed
     _isBusinessOwnerCached = null;
+  }
+
+  /// Check if there's any data recorded between 12:00 AM and custom closing time
+  /// If such data exists, automatically enable custom closing cycle
+  Future<void> _checkAndAutoEnableCustomClosing(List<Branch> branches) async {
+    try {
+      final dbService = DatabaseService();
+      final branchIds = branches.map((b) => b.id).toList();
+      
+      // Check if there's any data with amount_after_midnight > 0
+      final hasData = await dbService.hasDataAfterMidnight(branchIds);
+      
+      if (hasData) {
+        // Data exists between 12:00 AM and custom closing time
+        // Auto-enable custom closing cycle
+        final isCurrentlyEnabled = await ClosingCycleService.isCustomClosingEnabled();
+        
+        if (!isCurrentlyEnabled) {
+          debugPrint('Auto-enabling custom closing cycle due to existing after-midnight data');
+          await ClosingCycleService.setCustomClosingEnabled(true);
+          
+          // Ensure default closing time is set (1:00 AM)
+          final currentHour = await ClosingCycleService.getClosingHour();
+          if (currentHour == 0) {
+            // If somehow it's still 12:00 AM, set to 1:00 AM
+            await ClosingCycleService.setClosingTime(1, 0);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error checking for auto-enable custom closing: $e');
+      // Don't throw - this is a non-critical check
+    }
   }
 
   Future<void> _loadBranchUsers(String userId) async {

@@ -755,6 +755,36 @@ class DatabaseService {
     }
   }
 
+  // Check if there's any data that would be affected by disabling custom closing
+  // Returns true if there's any UPI payment with amountAfterMidnight > 0
+  // This means data exists between 12:00 AM and the custom closing time
+  // If only data exists before 12:00 AM (amountBeforeMidnight), this returns false (allows disabling)
+  Future<bool> hasDataAfterMidnight(List<String> branchIds) async {
+    try {
+      if (branchIds.isEmpty) return false;
+
+      // Query for any payments with amount_after_midnight > 0
+      // NULL and 0 values are excluded, which is correct - they don't block disabling
+      var query = _client
+          .from('qr_payments')
+          .select('id')
+          .gt('amount_after_midnight', 0);
+
+      if (branchIds.length == 1) {
+        query = query.eq('branch_id', branchIds.first);
+      } else {
+        query = query.or(branchIds.map((id) => 'branch_id.eq.$id').join(','));
+      }
+
+      final response = await query.limit(1);
+      return (response as List).isNotEmpty;
+    } catch (e) {
+      debugPrint('Error checking for after-midnight data: $e');
+      // If there's an error, be conservative and return true to prevent disabling
+      return true;
+    }
+  }
+
   // Owner Dashboard - Aggregated data
   Future<Map<String, dynamic>> getBranchSummary(
       String? branchId, DateTime startDate, DateTime endDate) async {
