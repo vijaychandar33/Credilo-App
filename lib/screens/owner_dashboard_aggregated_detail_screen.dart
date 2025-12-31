@@ -88,10 +88,19 @@ class OwnerDashboardAggregatedDetailScreen extends StatelessWidget {
             _buildSectionCard(
               context,
               'Total Cash Expenses',
-              CurrencyFormatter.format(data['totalExpenses'] ?? 0.0),
+              CurrencyFormatter.format(data['totalCashExpenses'] ?? 0.0),
               Icons.receipt_long,
               AppColors.textPrimary,
               () => _navigateToDetail(context, DetailScreenType.cashExpenses, 'Total Cash Expenses'),
+            ),
+            const SizedBox(height: 12),
+            _buildSectionCard(
+              context,
+              'Total Online Expenses',
+              CurrencyFormatter.format(data['totalOnlineExpenses'] ?? 0.0),
+              Icons.account_balance,
+              AppColors.textPrimary,
+              () => _navigateToDetail(context, DetailScreenType.onlineExpenses, 'Total Online Expenses'),
             ),
             const SizedBox(height: 12),
             _buildSectionCard(

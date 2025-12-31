@@ -12,6 +12,7 @@ enum DetailScreenType {
   onlineSales,
   qrPayments,
   cashExpenses,
+  onlineExpenses,
   creditExpenses,
   totalSales,
   totalExpenses,
@@ -131,6 +132,23 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
                   'amount': expense.amount,
                   'note': expense.note,
                   'type': 'cash_expense',
+                });
+                total += expense.amount;
+              }
+              break;
+
+            case DetailScreenType.onlineExpenses:
+              final onlineExpenses = await _dbService.getOnlineExpenses(currentDate, branch.id);
+              for (var expense in onlineExpenses) {
+                items.add({
+                  'date': currentDate,
+                  'branch': branch.name,
+                  'branchLocation': branch.location,
+                  'item': expense.item,
+                  'category': expense.category,
+                  'amount': expense.amount,
+                  'note': expense.note,
+                  'type': 'online_expense',
                 });
                 total += expense.amount;
               }
@@ -369,6 +387,18 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
         break;
 
       case 'cash_expense':
+        if (item['item'] != null) {
+          fields.add(_buildField('Item', item['item']));
+        }
+        if (item['category'] != null) {
+          fields.add(_buildField('Category', item['category']));
+        }
+        if (item['note'] != null && item['note'].toString().isNotEmpty) {
+          fields.add(_buildField('Note', item['note']));
+        }
+        break;
+
+      case 'online_expense':
         if (item['item'] != null) {
           fields.add(_buildField('Item', item['item']));
         }

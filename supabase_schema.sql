@@ -55,6 +55,19 @@ CREATE TABLE cash_expenses (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Online expenses (for UPI/bank transfer payments)
+CREATE TABLE online_expenses (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  date DATE NOT NULL,
+  user_id UUID REFERENCES users(id),
+  branch_id UUID REFERENCES branches(id) ON DELETE CASCADE,
+  item TEXT NOT NULL,
+  category TEXT NOT NULL,
+  amount NUMERIC(12,2) NOT NULL,
+  note TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Suppliers
 CREATE TABLE suppliers (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -243,6 +256,8 @@ CREATE TABLE cash_closings (
 -- Create indexes for performance
 CREATE INDEX idx_cash_expenses_date ON cash_expenses(date);
 CREATE INDEX idx_cash_expenses_branch ON cash_expenses(branch_id);
+CREATE INDEX idx_online_expenses_date ON online_expenses(date);
+CREATE INDEX idx_online_expenses_branch ON online_expenses(branch_id);
 CREATE INDEX idx_credit_expenses_date ON credit_expenses(date);
 CREATE INDEX idx_credit_expenses_branch ON credit_expenses(branch_id);
 CREATE INDEX idx_cash_counts_date ON cash_counts(date);

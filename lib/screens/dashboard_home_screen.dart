@@ -117,10 +117,13 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> with WidgetsB
         final cashExpenses = await _dbService.getCashExpenses(today, branch.id);
         final branchCashExpenses = cashExpenses.fold(0.0, (sum, e) => sum + e.amount);
         
+        final onlineExpenses = await _dbService.getOnlineExpenses(today, branch.id);
+        final branchOnlineExpenses = onlineExpenses.fold(0.0, (sum, e) => sum + e.amount);
+        
         final creditExpenses = await _dbService.getCreditExpenses(today, branch.id);
         final branchCreditExpenses = creditExpenses.fold(0.0, (sum, e) => sum + e.amount);
         
-        totalExpenses += branchCashExpenses + branchCreditExpenses;
+        totalExpenses += branchCashExpenses + branchOnlineExpenses + branchCreditExpenses;
 
         final cardSales = await _dbService.getCardSales(today, branch.id);
         totalCardSales += cardSales.fold(0.0, (sum, s) => sum + s.amount);

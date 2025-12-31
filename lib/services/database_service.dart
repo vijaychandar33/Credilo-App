@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/cash_expense.dart';
+import '../models/online_expense.dart';
 import '../models/cash_count.dart';
 import '../models/card_sale.dart';
 import '../models/online_sale.dart';
@@ -64,6 +65,55 @@ class DatabaseService {
       await _client.from('cash_expenses').delete().eq('id', id);
     } catch (e) {
       debugPrint('Error deleting cash expense: $e');
+      rethrow;
+    }
+  }
+
+  // Online Expenses
+  Future<List<OnlineExpense>> getOnlineExpenses(DateTime date, String branchId) async {
+    try {
+      final response = await _client
+          .from('online_expenses')
+          .select()
+          .eq('date', date.toIso8601String().split('T')[0])
+          .eq('branch_id', branchId)
+          .order('created_at', ascending: false);
+
+      return (response as List)
+          .map((json) => OnlineExpense.fromJson(json))
+          .toList();
+    } catch (e) {
+      debugPrint('Error fetching online expenses: $e');
+      return [];
+    }
+  }
+
+  Future<void> saveOnlineExpense(OnlineExpense expense) async {
+    try {
+      await _client.from('online_expenses').insert(expense.toJson());
+    } catch (e) {
+      debugPrint('Error saving online expense: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> updateOnlineExpense(OnlineExpense expense) async {
+    try {
+      await _client
+          .from('online_expenses')
+          .update(expense.toJson())
+          .eq('id', expense.id!);
+    } catch (e) {
+      debugPrint('Error updating online expense: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> deleteOnlineExpense(String id) async {
+    try {
+      await _client.from('online_expenses').delete().eq('id', id);
+    } catch (e) {
+      debugPrint('Error deleting online expense: $e');
       rethrow;
     }
   }

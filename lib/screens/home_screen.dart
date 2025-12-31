@@ -5,6 +5,7 @@ import '../services/auth_service.dart';
 import '../models/branch.dart';
 import '../utils/closing_cycle_service.dart';
 import 'cash_expense_screen.dart';
+import 'online_expense_screen.dart';
 import 'credit_expense_screen.dart';
 import 'cash_balance_screen.dart';
 import 'card_screen.dart';
@@ -168,6 +169,24 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                               context,
                               MaterialPageRoute(
                                 builder: (context) => CashExpenseScreen(
+                                  selectedDate: _selectedDate,
+                                ),
+                              ),
+                            )
+                        : null,
+                    disabled: !canEdit,
+                  ),
+                  const SizedBox(height: 12),
+                  _buildQuickActionButton(
+                    context,
+                    'Online Daily Expense',
+                    Icons.account_balance,
+                    AppColors.primary,
+                    canEdit
+                        ? () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => OnlineExpenseScreen(
                                   selectedDate: _selectedDate,
                                 ),
                               ),

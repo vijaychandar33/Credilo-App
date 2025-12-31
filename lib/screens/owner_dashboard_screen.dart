@@ -246,6 +246,8 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
             'totalCardSales': 0.0,
             'totalOnlineSales': 0.0,
             'totalExpenses': 0.0,
+            'totalCashExpenses': 0.0,
+            'totalOnlineExpenses': 0.0,
             'totalCreditExpenses': 0.0,
             'totalQrPayments': 0.0,
             'totalDues': 0.0,
@@ -259,6 +261,8 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
 
       final dateRange = await _getDateRange();
       double totalExpenses = 0.0;
+      double totalCashExpenses = 0.0;
+      double totalOnlineExpenses = 0.0;
       double totalCreditExpenses = 0.0;
       double totalCardSales = 0.0;
       double totalOnlineSales = 0.0;
@@ -275,11 +279,17 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                currentDate.isAtSameMomentAs(dateRange.endDate)) {
           final expenses = await _dbService.getCashExpenses(currentDate, branch.id);
           final branchExpenses = expenses.fold(0.0, (sum, e) => sum + e.amount);
-          totalExpenses += branchExpenses;
+          totalCashExpenses += branchExpenses;
+
+          final onlineExpenses = await _dbService.getOnlineExpenses(currentDate, branch.id);
+          final branchOnlineExpenses = onlineExpenses.fold(0.0, (sum, e) => sum + e.amount);
+          totalOnlineExpenses += branchOnlineExpenses;
 
           final creditExpenses = await _dbService.getCreditExpenses(currentDate, branch.id);
           final branchCreditExpenses = creditExpenses.fold(0.0, (sum, e) => sum + e.amount);
           totalCreditExpenses += branchCreditExpenses;
+          
+          totalExpenses += branchExpenses + branchOnlineExpenses + branchCreditExpenses;
 
           final cardSales = await _dbService.getCardSales(currentDate, branch.id);
           final branchCardSales = cardSales.fold(0.0, (sum, s) => sum + s.amount);
@@ -336,6 +346,8 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
           'totalCardSales': totalCardSales,
           'totalOnlineSales': totalOnlineSales,
           'totalExpenses': totalExpenses,
+          'totalCashExpenses': totalCashExpenses,
+          'totalOnlineExpenses': totalOnlineExpenses,
           'totalCreditExpenses': totalCreditExpenses,
           'totalQrPayments': totalQrPayments,
           'totalDues': totalDues,
@@ -467,8 +479,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
     
     // Calculate totals
     final totalSalesAmount = (data['totalSales'] ?? 0.0) as double;
-    final totalExpensesAmount = ((data['totalExpenses'] ?? 0.0) as double) + 
-                                 ((data['totalCreditExpenses'] ?? 0.0) as double);
+    final totalExpensesAmount = (data['totalExpenses'] ?? 0.0) as double;
     final totalProfit = totalSalesAmount - totalExpensesAmount;
     final profitPercentage = totalSalesAmount > 0 
         ? (totalProfit / totalSalesAmount) * 100 
@@ -527,10 +538,18 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
           const SizedBox(height: 8),
           _buildTappableSummaryCard(
             'Total Cash Expenses',
-            CurrencyFormatter.format(data['totalExpenses'] ?? 0.0),
+            CurrencyFormatter.format(data['totalCashExpenses'] ?? 0.0),
             Icons.receipt_long,
             AppColors.textPrimary,
             () => _navigateToDetail(DetailScreenType.cashExpenses, 'Total Cash Expenses'),
+          ),
+          const SizedBox(height: 12),
+          _buildTappableSummaryCard(
+            'Total Online Expenses',
+            CurrencyFormatter.format(data['totalOnlineExpenses'] ?? 0.0),
+            Icons.account_balance,
+            AppColors.textPrimary,
+            () => _navigateToDetail(DetailScreenType.onlineExpenses, 'Total Online Expenses'),
           ),
           const SizedBox(height: 12),
           _buildTappableSummaryCard(
