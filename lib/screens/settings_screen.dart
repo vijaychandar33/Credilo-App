@@ -213,6 +213,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           if (!value && _useCustomClosing) {
                             // Show loading indicator
                             if (!mounted) return;
+                            // Capture context before async gap
+                            final dialogContext = context;
+                            final navigator = Navigator.of(context);
                             showDialog(
                               context: context,
                               barrierDismissible: false,
@@ -230,13 +233,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               final hasData = await _dbService.hasDataAfterMidnight(branchIds);
 
                               if (!mounted) return;
-                              Navigator.pop(context); // Close loading dialog
+                              navigator.pop(); // Close loading dialog
 
-                              if (hasData) {
+                              if (hasData && mounted) {
                                 // Show error dialog
-                                if (!mounted) return;
                                 await showDialog(
-                                  context: context,
+                                  // ignore: use_build_context_synchronously
+                                  context: dialogContext,
                                   builder: (context) => AlertDialog(
                                     title: const Text('Cannot Disable Custom Closing'),
                                     content: const Text(
@@ -262,21 +265,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               await ClosingCycleService.setCustomClosingEnabled(value);
                             } catch (e) {
                               if (!mounted) return;
-                              Navigator.pop(context); // Close loading dialog
+                              navigator.pop(); // Close loading dialog
                               // Show error dialog
-                              await showDialog(
-                                context: context,
-                                builder: (context) => AlertDialog(
-                                  title: const Text('Error'),
-                                  content: Text('An error occurred while checking data: $e'),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(context),
-                                      child: const Text('OK'),
-                                    ),
-                                  ],
-                                ),
-                              );
+                              if (mounted) {
+                                await showDialog(
+                                  // ignore: use_build_context_synchronously
+                                  context: dialogContext,
+                                  builder: (context) => AlertDialog(
+                                    title: const Text('Error'),
+                                    content: Text('An error occurred while checking data: $e'),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context),
+                                        child: const Text('OK'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }
                             }
                           }
                         },
