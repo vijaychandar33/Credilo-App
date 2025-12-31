@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../utils/app_colors.dart';
+import '../utils/error_message_helper.dart';
 import '../models/card_sale.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
@@ -47,7 +48,7 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
       debugPrint('Error loading card machines: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading machines: $e')),
+          SnackBar(content: Text('Unable to load machines. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
         );
       }
     } finally {
@@ -146,7 +147,7 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
               } catch (e) {
                 if (!mounted) return;
                 messenger.showSnackBar(
-                  SnackBar(content: Text('Error saving machine: $e')),
+                  SnackBar(content: Text('Unable to save machine. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
                 );
               }
             },
@@ -193,7 +194,7 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error deleting machine: $e')),
+            SnackBar(content: Text('Unable to delete machine. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
           );
         }
       }

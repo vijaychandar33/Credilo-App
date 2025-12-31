@@ -4,6 +4,7 @@ import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../models/user.dart';
 import '../utils/closing_cycle_service.dart';
+import '../utils/error_message_helper.dart';
 import 'profile_screen.dart';
 import 'login_screen.dart';
 import 'user_management_screen.dart';
@@ -273,7 +274,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   context: dialogContext,
                                   builder: (context) => AlertDialog(
                                     title: const Text('Error'),
-                                    content: Text('An error occurred while checking data: $e'),
+                                    content: Text('Unable to check data. ${ErrorMessageHelper.getUserFriendlyError(e)}'),
                                     actions: [
                                       TextButton(
                                         onPressed: () => Navigator.pop(context),

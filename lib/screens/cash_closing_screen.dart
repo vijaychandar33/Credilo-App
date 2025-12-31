@@ -5,6 +5,7 @@ import '../models/cash_closing.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
+import '../utils/error_message_helper.dart';
 
 class CashClosingScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -152,7 +153,7 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving cash closing: $e')),
+          SnackBar(content: Text('Unable to save cash closing. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
         );
       }
     } finally {

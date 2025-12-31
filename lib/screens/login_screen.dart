@@ -6,6 +6,7 @@ import '../models/branch.dart';
 import 'dashboard_home_screen.dart';
 import 'registration_screen.dart';
 import '../utils/app_colors.dart';
+import '../utils/error_message_helper.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -61,9 +62,10 @@ class _LoginScreenState extends State<LoginScreen> {
       });
 
       if (mounted) {
+        final friendlyMessage = ErrorMessageHelper.getUserFriendlyError(e);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Login failed: ${e.toString()}'),
+            content: Text(friendlyMessage),
             backgroundColor: AppColors.error,
           ),
         );

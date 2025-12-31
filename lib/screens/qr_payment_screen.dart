@@ -8,6 +8,7 @@ import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/delete_confirmation_dialog.dart';
 import '../utils/closing_cycle_service.dart';
+import '../utils/error_message_helper.dart';
 
 class QrPaymentScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -392,7 +393,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
             debugPrint('QR payment saved successfully');
           } catch (e) {
             debugPrint('Error saving QR payment: $e');
-            errors.add('Error: ${e.toString()}');
+            errors.add(ErrorMessageHelper.getUserFriendlyError(e));
           }
         }
       }
@@ -434,8 +435,9 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
       }
     } catch (e) {
       if (mounted) {
+        final errorMessage = ErrorMessageHelper.getUserFriendlyError(e);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving UPI payments: $e')),
+          SnackBar(content: Text('Unable to save UPI payments. $errorMessage')),
         );
       }
     } finally {

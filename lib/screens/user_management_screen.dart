@@ -4,6 +4,7 @@ import '../models/user.dart';
 import '../models/branch.dart';
 import '../services/auth_service.dart';
 import '../utils/app_colors.dart';
+import '../utils/error_message_helper.dart';
 
 class UserManagementScreen extends StatefulWidget {
   const UserManagementScreen({super.key});
@@ -801,18 +802,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       debugPrint('Error adding user: $e');
       if (!mounted) return;
       
-      String errorMessage = 'Error adding user';
-      final errorString = e.toString();
-      if (errorString.contains('user_already_exists')) {
-        errorMessage = 'User with this email already exists. Please use a different email.';
-      } else if (errorString.contains('PostgrestException')) {
-        final match = RegExp(r'message: ([^,]+)').firstMatch(errorString);
-        if (match != null) {
-          errorMessage = 'Database error: ${match.group(1)}';
-        }
-      } else {
-        errorMessage = errorString.split(':').last.trim();
-      }
+      final errorMessage = ErrorMessageHelper.getUserFriendlyError(e);
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -983,9 +973,10 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     } catch (e) {
       debugPrint('Error removing user from all branches: $e');
       if (!mounted) return;
+      final errorMessage = ErrorMessageHelper.getUserFriendlyError(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error: ${e.toString()}'),
+          content: Text(errorMessage),
                         backgroundColor: AppColors.error,
         ),
       );
@@ -1075,16 +1066,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       debugPrint('Error removing user from branch: $e');
       if (!mounted) return;
       
-      String errorMessage = 'Error removing user from branch';
-      final errorString = e.toString();
-      
-      if (errorString.contains('permission') || errorString.contains('policy')) {
-        errorMessage = 'Permission denied. You may not have access to delete this user.';
-      } else if (errorString.contains('Cannot delete the last business owner')) {
-        errorMessage = 'Cannot delete the last business owner. A branch must have at least one business owner.';
-      } else {
-        errorMessage = 'Error: ${errorString.split(':').last.trim()}';
-      }
+      final errorMessage = ErrorMessageHelper.getUserFriendlyError(e);
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1367,9 +1349,10 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     } catch (e) {
                       debugPrint('Error making user business owner: $e');
                       if (context.mounted) {
+                        final errorMessage = ErrorMessageHelper.getUserFriendlyError(e);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text('Error: ${e.toString()}'),
+                            content: Text(errorMessage),
                             backgroundColor: AppColors.error,
                           ),
                         );
@@ -1531,9 +1514,10 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                   .eq('id', oldAssignment['branch_user_id'] as String);
             } catch (e) {
               if (!mounted) rethrow;
+              final errorMessage = ErrorMessageHelper.getUserFriendlyError(e);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('Error updating role: ${e.toString()}'),
+                  content: Text(errorMessage),
                   backgroundColor: AppColors.error,
                   duration: const Duration(seconds: 3),
                 ),
@@ -1557,9 +1541,10 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 .eq('id', branchUserId);
           } catch (e) {
             if (!mounted) rethrow;
+            final errorMessage = ErrorMessageHelper.getUserFriendlyError(e);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Error removing ${branch.name}: ${e.toString()}'),
+                content: Text('Unable to remove ${branch.name}. $errorMessage'),
                 backgroundColor: AppColors.error,
                 duration: const Duration(seconds: 3),
               ),
@@ -1581,9 +1566,10 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     } catch (e) {
       debugPrint('Error updating user branches: $e');
       if (!mounted) return;
+      final errorMessage = ErrorMessageHelper.getUserFriendlyError(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error: ${e.toString()}'),
+          content: Text(errorMessage),
                         backgroundColor: AppColors.error,
         ),
       );

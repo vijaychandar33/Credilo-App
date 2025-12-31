@@ -7,6 +7,7 @@ import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/delete_confirmation_dialog.dart';
+import '../utils/error_message_helper.dart';
 
 class DueScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -249,7 +250,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
             debugPrint('Receivable saved successfully');
           } catch (e) {
             debugPrint('Error saving receivable: $e');
-            errors.add('Receivable: ${e.toString()}');
+            errors.add('Receivable: ${ErrorMessageHelper.getUserFriendlyError(e)}');
           }
         }
       }
@@ -281,7 +282,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
             debugPrint('Payable saved successfully');
           } catch (e) {
             debugPrint('Error saving payable: $e');
-            errors.add('Payable: ${e.toString()}');
+            errors.add('Payable: ${ErrorMessageHelper.getUserFriendlyError(e)}');
           }
         }
       }
@@ -314,8 +315,9 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
     } catch (e) {
       debugPrint('Error in save function: $e');
       if (mounted) {
+        final errorMessage = ErrorMessageHelper.getUserFriendlyError(e);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving dues: $e')),
+          SnackBar(content: Text('Unable to save dues. $errorMessage')),
         );
       }
     } finally {

@@ -7,6 +7,7 @@ import '../models/supplier.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import 'supplier_edit_screen.dart';
+import '../utils/error_message_helper.dart';
 
 class SupplierDetailScreen extends StatefulWidget {
   final Supplier supplier;
@@ -52,7 +53,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
       debugPrint('Error loading expenses: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading expenses: $e')),
+          SnackBar(content: Text('Unable to load expenses. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
         );
       }
     } finally {
@@ -113,7 +114,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error updating status: $e')),
+          SnackBar(content: Text('Unable to update status. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
         );
       }
     } finally {
@@ -215,7 +216,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error updating status: $e')),
+            SnackBar(content: Text('Unable to update status. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
           );
         }
       } finally {
@@ -292,7 +293,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error deleting supplier: $e')),
+            SnackBar(content: Text('Unable to delete supplier. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
           );
         }
       }

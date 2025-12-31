@@ -8,6 +8,7 @@ import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/delete_confirmation_dialog.dart';
+import '../utils/error_message_helper.dart';
 import 'supplier_management_screen.dart';
 
 class CreditExpenseScreen extends StatefulWidget {
@@ -278,7 +279,7 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving credit expenses: $e')),
+          SnackBar(content: Text('Unable to save credit expenses. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
         );
       }
     } finally {

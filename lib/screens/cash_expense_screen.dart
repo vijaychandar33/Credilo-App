@@ -7,6 +7,7 @@ import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/delete_confirmation_dialog.dart';
+import '../utils/error_message_helper.dart';
 
 class CashExpenseScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -227,8 +228,9 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
       }
     } catch (e) {
       if (mounted) {
+        final errorMessage = ErrorMessageHelper.getUserFriendlyError(e);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving expenses: $e')),
+          SnackBar(content: Text('Unable to save expenses. $errorMessage')),
         );
       }
     } finally {

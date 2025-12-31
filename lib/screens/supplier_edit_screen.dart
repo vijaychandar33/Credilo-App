@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/supplier.dart';
 import '../services/database_service.dart';
+import '../utils/error_message_helper.dart';
 
 class SupplierEditScreen extends StatefulWidget {
   final Supplier supplier;
@@ -65,7 +66,7 @@ class _SupplierEditScreenState extends State<SupplierEditScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error updating supplier: $e')),
+          SnackBar(content: Text('Unable to update supplier. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
         );
       }
     } finally {

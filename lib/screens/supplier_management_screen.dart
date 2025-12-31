@@ -8,6 +8,7 @@ import '../services/database_service.dart';
 import '../utils/app_colors.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/date_range_utils.dart';
+import '../utils/error_message_helper.dart';
 import 'supplier_detail_screen.dart';
 import 'supplier_edit_screen.dart';
 
@@ -136,7 +137,7 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
       debugPrint('Error loading suppliers: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading suppliers: $e')),
+          SnackBar(content: Text('Unable to load suppliers. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
         );
       }
     } finally {
@@ -164,7 +165,7 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error adding supplier: $e')),
+            SnackBar(content: Text('Unable to add supplier. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
           );
         }
       }

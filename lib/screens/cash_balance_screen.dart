@@ -5,6 +5,7 @@ import '../models/cash_count.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
+import '../utils/error_message_helper.dart';
 
 class CashBalanceScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -245,7 +246,7 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving cash balance: $e')),
+          SnackBar(content: Text('Unable to save cash balance. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
         );
       }
     } finally {

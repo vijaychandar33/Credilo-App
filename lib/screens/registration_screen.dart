@@ -6,6 +6,7 @@ import '../models/business.dart';
 import '../models/branch.dart';
 import 'dashboard_home_screen.dart';
 import '../utils/app_colors.dart';
+import '../utils/error_message_helper.dart';
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({super.key});
@@ -369,29 +370,10 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       });
 
       if (mounted) {
-        String errorMessage = 'Registration failed';
-        bool showLoginDialog = false;
-        
-        // Handle specific error types
-        final errorString = e.toString();
-        if (errorString.contains('user_already_exists') || 
-            errorString.contains('User already registered')) {
-          errorMessage = 'This email is already registered.';
-          showLoginDialog = true;
-        } else if (errorString.contains('PostgrestException')) {
-          // Extract the actual error message from PostgrestException
-          final match = RegExp(r'message: ([^,]+)').firstMatch(errorString);
-          if (match != null) {
-            errorMessage = 'Database error: ${match.group(1)}';
-          } else {
-            errorMessage = 'Database error occurred';
-          }
-        } else if (errorString.contains('Invalid login credentials') ||
-                   errorString.contains('Invalid credentials')) {
-          errorMessage = 'Invalid email or password';
-        } else {
-          errorMessage = 'Registration failed: ${errorString.split(':').last.trim()}';
-        }
+        final errorString = e.toString().toLowerCase();
+        final errorMessage = ErrorMessageHelper.getUserFriendlyError(e);
+        final showLoginDialog = errorString.contains('user_already_exists') || 
+                                errorString.contains('user already registered');
         
         if (showLoginDialog) {
           // Show dialog to redirect to login

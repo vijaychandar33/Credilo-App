@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../utils/app_colors.dart';
+import '../utils/error_message_helper.dart';
 import '../models/user.dart';
 import '../services/auth_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -82,7 +83,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error updating profile: $e')),
+          SnackBar(content: Text('Unable to update profile. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
         );
       }
     }

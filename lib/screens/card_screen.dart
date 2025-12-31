@@ -8,6 +8,7 @@ import 'card_machine_management_screen.dart';
 import '../utils/app_colors.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/delete_confirmation_dialog.dart';
+import '../utils/error_message_helper.dart';
 
 class CardScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -289,7 +290,7 @@ class _CardScreenState extends State<CardScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving card sales: $e')),
+          SnackBar(content: Text('Unable to save card sales. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
         );
       }
     } finally {

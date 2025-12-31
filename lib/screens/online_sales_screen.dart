@@ -7,6 +7,7 @@ import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/delete_confirmation_dialog.dart';
+import '../utils/error_message_helper.dart';
 
 class OnlineSalesScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -224,7 +225,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving online sales: $e')),
+          SnackBar(content: Text('Unable to save online sales. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
         );
       }
     } finally {

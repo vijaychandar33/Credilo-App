@@ -3,6 +3,7 @@ import '../utils/app_colors.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import '../models/branch.dart';
 import '../services/auth_service.dart';
+import '../utils/error_message_helper.dart';
 
 class AddBranchScreen extends StatefulWidget {
   const AddBranchScreen({super.key});
@@ -138,9 +139,10 @@ class _AddBranchScreenState extends State<AddBranchScreen> {
       });
 
       if (mounted) {
+        final errorMessage = ErrorMessageHelper.getUserFriendlyError(e);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: ${e.toString()}'),
+            content: Text(errorMessage),
             backgroundColor: AppColors.error,
           ),
         );
