@@ -269,20 +269,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               navigator.pop(); // Close loading dialog
                               // Show error dialog
                               if (mounted) {
-                                await showDialog(
+                              await showDialog(
                                   // ignore: use_build_context_synchronously
                                   context: dialogContext,
-                                  builder: (context) => AlertDialog(
-                                    title: const Text('Error'),
+                                builder: (context) => AlertDialog(
+                                  title: const Text('Error'),
                                     content: Text('Unable to check data. ${ErrorMessageHelper.getUserFriendlyError(e)}'),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () => Navigator.pop(context),
-                                        child: const Text('OK'),
-                                      ),
-                                    ],
-                                  ),
-                                );
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      child: const Text('OK'),
+                                    ),
+                                  ],
+                                ),
+                              );
                               }
                             }
                           }

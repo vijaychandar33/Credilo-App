@@ -310,22 +310,22 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
         title: Text(widget.supplier.name),
         actions: [
           if (!_authService.isReadOnly()) ...[
-            if (_selectedIds.isNotEmpty)
-              IconButton(
-                icon: const Icon(Icons.check_circle),
-                onPressed: _isUpdating ? null : _markAsPaid,
-                tooltip: 'Mark as Paid',
-              ),
+          if (_selectedIds.isNotEmpty)
             IconButton(
-              icon: const Icon(Icons.edit),
-              onPressed: _editSupplier,
-              tooltip: 'Edit Supplier',
+              icon: const Icon(Icons.check_circle),
+              onPressed: _isUpdating ? null : _markAsPaid,
+              tooltip: 'Mark as Paid',
             ),
-            IconButton(
-              icon: const Icon(Icons.delete_outline),
-              onPressed: _deleteSupplier,
-              tooltip: 'Delete Supplier',
-            ),
+          IconButton(
+            icon: const Icon(Icons.edit),
+            onPressed: _editSupplier,
+            tooltip: 'Edit Supplier',
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            onPressed: _deleteSupplier,
+            tooltip: 'Delete Supplier',
+          ),
           ],
         ],
       ),

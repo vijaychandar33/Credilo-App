@@ -73,7 +73,7 @@ Built by ZyntelX, credilo helps businesses track and manage their daily financia
 - Supplier model
 
 ### Screen Layer
-- Authentication: Login, Registration
+- Authentication: Login/Registration (unified flow)
 - Dashboard: Home, Owner Dashboard, Financial Entry
 - Financial Operations: Cash Expense, Credit Expense, Cash Balance, Card Sales, Online Sales, QR Payments, Dues, Cash Closing
 - Management: Branch Management, Supplier Management, User Management, Card Machine Management
@@ -104,8 +104,7 @@ lib/
 │   ├── cash_closing.dart
 │   └── supplier.dart
 ├── screens/                           # UI screens
-│   ├── login_screen.dart
-│   ├── registration_screen.dart
+│   ├── login_screen.dart              # Unified login/registration
 │   ├── dashboard_home_screen.dart
 │   ├── home_screen.dart              # Financial entry screen
 │   ├── owner_dashboard_screen.dart
@@ -157,10 +156,9 @@ lib/
    ```
 
 3. **Set up Supabase**
-   - Follow the instructions in `SUPABASE_SETUP.md`
-   - Create your Supabase project
-   - Run the SQL schema from `supabase_schema.sql` or `SUPABASE_SETUP.md`
-   - Get your Supabase URL and anon key
+   - Create your Supabase project at [supabase.com](https://supabase.com)
+   - Run the SQL schema from `supabase_schema.sql` in the Supabase SQL Editor
+   - Get your Supabase URL and anon key from Settings → API
 
 4. **Configure Supabase**
    - Update `lib/config/supabase_config.dart` with your Supabase credentials:
@@ -206,9 +204,9 @@ Users are assigned to branches through the `branch_users` table with specific ro
 ## Usage
 
 ### First Time Setup
-1. Register a new account or login
-2. Create a business (if you're a business owner)
-3. Add your first branch
+1. Login with your email (OTP-based authentication)
+2. If new user, complete registration with business details
+3. Create your first branch
 4. Start recording daily financial operations
 
 ### Daily Operations
@@ -272,7 +270,11 @@ flutter build ios --release
 ## Configuration
 
 ### Supabase Setup
-See `SUPABASE_SETUP.md` for detailed database setup instructions.
+1. Create a Supabase project at [supabase.com](https://supabase.com)
+2. Go to SQL Editor and run the entire `supabase_schema.sql` file
+3. Get your project URL and anon key from Settings → API
+4. Update `lib/config/supabase_config.dart` with your credentials
+5. Configure email templates in Authentication → Email Templates (use the 8-digit OTP template from `EMAIL_TEMPLATE_8DIGIT.html`)
 
 ### Environment Variables
 Supabase credentials are stored in `lib/config/supabase_config.dart`. For production, consider using environment variables or secure storage.
@@ -320,7 +322,7 @@ Supabase credentials are stored in `lib/config/supabase_config.dart`. For produc
 
 For issues and questions:
 - Check the documentation
-- Review `SUPABASE_SETUP.md` for backend setup
+- Review the Supabase setup section above for backend configuration
 - Check Supabase dashboard for database issues
 
 ---

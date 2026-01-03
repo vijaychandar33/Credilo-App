@@ -676,11 +676,11 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
         title: const Text('Suppliers'),
         actions: [
           if (!_authService.isReadOnly())
-            IconButton(
-              icon: const Icon(Icons.add),
-              tooltip: 'Add Supplier',
-              onPressed: _addSupplier,
-            ),
+          IconButton(
+            icon: const Icon(Icons.add),
+            tooltip: 'Add Supplier',
+            onPressed: _addSupplier,
+          ),
         ],
       ),
       body: _isLoading

@@ -310,10 +310,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   void _showAddUserDialog() {
     final nameController = TextEditingController();
     final emailController = TextEditingController();
-    final passwordController = TextEditingController();
     Branch? selectedBranch;
     UserRole? selectedRole;
-    bool obscurePassword = true;
     bool makeBusinessOwner = false;
     bool makeBusinessOwnerReadOnly = false;
 
@@ -345,25 +343,25 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                       keyboardType: TextInputType.emailAddress,
                     ),
                     const SizedBox(height: 12),
-                    StatefulBuilder(
-                      builder: (context, setDialogState) => TextField(
-                        controller: passwordController,
-                        decoration: InputDecoration(
-                          labelText: 'Password *',
-                          prefixIcon: const Icon(Icons.lock),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              obscurePassword ? Icons.visibility : Icons.visibility_off,
+                    Card(
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.info_outline, color: AppColors.primary, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'A verification code will be sent to the user\'s email at the time of login.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
                             ),
-                            onPressed: () {
-                              setDialogState(() {
-                                obscurePassword = !obscurePassword;
-                              });
-                            },
-                          ),
-                          border: const OutlineInputBorder(),
+                          ],
                         ),
-                        obscureText: obscurePassword,
                       ),
                     ),
                 if (_isBusinessOwner) ...[
@@ -379,8 +377,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                         if (makeBusinessOwner) {
                           makeBusinessOwnerReadOnly = false;
                           if (_allBranches.isNotEmpty) {
-                            selectedBranch = _allBranches.first;
-                            selectedRole = UserRole.owner;
+                          selectedBranch = _allBranches.first;
+                          selectedRole = UserRole.owner;
                           }
                         }
                       });
@@ -463,13 +461,11 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 if (nameController.text.isEmpty ||
                     emailController.text.isEmpty ||
                     !emailController.text.contains('@') ||
-                    passwordController.text.isEmpty ||
-                    passwordController.text.length < 6 ||
                     (!makeBusinessOwner && !makeBusinessOwnerReadOnly && (selectedBranch == null || selectedRole == null))) {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('Please fill all required fields (password must be at least 6 characters)'),
+                        content: Text('Please fill all required fields'),
                         backgroundColor: AppColors.error,
                       ),
                     );
@@ -480,7 +476,6 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 await _addUser(
                   nameController.text,
                   emailController.text,
-                  passwordController.text,
                   (makeBusinessOwner || makeBusinessOwnerReadOnly) ? _allBranches.first : selectedBranch!,
                   (makeBusinessOwner || makeBusinessOwnerReadOnly) ? UserRole.owner : selectedRole!,
                   makeBusinessOwner: makeBusinessOwner,
@@ -501,7 +496,6 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   Future<void> _addUser(
     String name,
     String email,
-    String password,
     Branch branch,
     UserRole role, {
     bool makeBusinessOwner = false,
@@ -510,180 +504,66 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     try {
       final supabase = Supabase.instance.client;
       String userId;
-      bool isNewUser = false;
 
-      // Step 1: Try to create user in Supabase Auth
-      // Save current session to restore after user creation
-      final currentOwnerSession = supabase.auth.currentSession;
-      
-      if (currentOwnerSession == null) {
-        throw Exception('Owner session not found. Please sign in again.');
-      }
-      
-      try {
-        final authResponse = await supabase.auth.signUp(
-          email: email,
-          password: password,
-          data: {
-            'name': name,
-          },
-        );
-
-        if (authResponse.user == null) {
-          throw Exception('Failed to create user account');
-        }
-
-        userId = authResponse.user!.id;
-        isNewUser = true;
-        debugPrint('Created new auth user: $userId');
-        
-        // If signUp created a session (auto sign-in), restore owner session
-        if (authResponse.session != null) {
-          debugPrint('SignUp created session, restoring owner session...');
-          try {
-            // Sign out the new user session first
-            await supabase.auth.signOut();
-            // Restore owner session using the saved session object
-            await supabase.auth.setSession(currentOwnerSession.accessToken);
-            // Refresh the session to ensure it's valid
-            await supabase.auth.refreshSession();
-            debugPrint('Restored owner session after signUp');
-            
-            // Verify we're back to owner session
-            final restoredSession = supabase.auth.currentSession;
-            if (restoredSession?.user.id != currentOwnerSession.user.id) {
-              throw Exception('Session restoration failed - wrong user');
-            }
-          } catch (e) {
-            debugPrint('Failed to restore session after signUp: $e');
-            // If session restoration fails, throw error to prevent proceeding with wrong session
-            throw Exception('Failed to restore owner session. Please try again.');
-          }
-        }
-      } catch (signUpError) {
-        // Check if user already exists in auth
-        final errorString = signUpError.toString();
-        if (errorString.contains('user_already_exists') || 
-            errorString.contains('User already registered') ||
-            errorString.contains('already registered')) {
-          
-          debugPrint('User already exists in auth, checking database...');
-          
-          // Try to find existing user by email in database
-          final existingUsersResponse = await supabase
+      // Step 1: Check if user already exists in database
+      final existingUserResponse = await supabase
               .from('users')
               .select()
               .eq('email', email)
               .maybeSingle();
           
-          if (existingUsersResponse != null) {
-            // User exists in both auth and database
-            userId = existingUsersResponse['id'] as String;
-            debugPrint('Found existing user in database: $userId');
+      if (existingUserResponse != null) {
+        // User already exists in database
+        userId = existingUserResponse['id'] as String;
+        debugPrint('User already exists in database: $userId');
           } else {
-            // User exists in auth but not in database
-            // This can happen if a user was deleted from database but auth account remains
-            // Use the RPC function to get user ID by email and create the database record
-            debugPrint('User exists in auth but not in database. Looking up user ID by email...');
-            try {
-              final userIdResponse = await supabase.rpc('insert_user_for_owner_by_email', params: {
-                'p_email': email,
-                'p_name': name,
-                'p_phone': null,
-              });
-              
-              if (userIdResponse != null) {
-                userId = userIdResponse as String;
-                debugPrint('Found and created user record for existing auth user: $userId');
-                isNewUser = false; // User already exists in auth, just created DB record
-              } else {
-                throw Exception('Failed to retrieve user ID for existing email');
-              }
-            } catch (rpcError) {
-              debugPrint('Error looking up user by email: $rpcError');
-              // If the function fails, it means user doesn't exist in auth either
-              // or there's a permission issue
-              final errorString = rpcError.toString();
-              if (errorString.contains('does not exist in authentication system')) {
-                // This shouldn't happen since we know user exists in auth
-                // But handle it gracefully
-                throw Exception('Unable to recover user account. Please contact support.');
-              } else {
-                rethrow;
-              }
-            }
-          }
-        } else {
-          rethrow;
+        // Step 2: User doesn't exist - store pending user info
+        // Get current user ID for created_by field
+        final currentUser = supabase.auth.currentUser;
+        if (currentUser == null) {
+          throw Exception('Admin must be logged in to add users');
         }
-      }
 
-      // Step 2: Create or update user record in database
-      // Note: If user existed in auth but not DB, the RPC function already created the record
-      // So we only need to create/update if it's a new user or if user exists in DB
-      if (isNewUser) {
-        // Use the database function to insert user (bypasses RLS issues)
-        try {
-          await supabase.rpc('insert_user_for_owner', params: {
-            'p_user_id': userId,
-            'p_name': name,
-            'p_email': email,
-            'p_phone': null,
-          });
-          debugPrint('Created user record in database using function');
-        } catch (rpcError) {
-          // Fallback to direct insert if function fails
-          debugPrint('Function insert failed, trying direct insert: $rpcError');
-          try {
-        await supabase.from('users').insert({
-          'id': userId,
-          'name': name,
-          'email': email,
-          'phone': null,
-        });
-            debugPrint('Created user record in database using direct insert');
-          } catch (e) {
-            debugPrint('Direct insert also failed: $e');
-            // Continue - maybe the record already exists
-          }
-        }
-      } else {
-        // Check if user record exists in database
-        final existingUserCheck = await supabase
-            .from('users')
-            .select()
-            .eq('id', userId)
-            .maybeSingle();
+        // Get business ID from branch
+        final branchData = await supabase
+            .from('branches')
+            .select('business_id')
+            .eq('id', branch.id)
+            .single();
         
-        if (existingUserCheck != null) {
-          // User exists in DB, try to update if needed
-          try {
-            await supabase.from('users').update({
-          'name': name,
+        final businessId = branchData['business_id'] as String;
+        final roleToStore = makeBusinessOwner 
+            ? 'business_owner' 
+            : (makeBusinessOwnerReadOnly 
+                ? 'business_owner_read_only' 
+                : role.toString().split('.').last);
+
+        // Store pending user info
+        await supabase.from('pending_users').insert({
           'email': email,
-            }).eq('id', userId);
-        debugPrint('Updated existing user record');
-          } catch (e) {
-            debugPrint('Error updating user record: $e');
-            // Continue anyway - the user record might already be correct
-          }
-        } else {
-          // User doesn't exist in DB but exists in auth
-          // This shouldn't happen if RPC function worked, but handle it
-          debugPrint('User not found in database, creating record...');
-          try {
-            await supabase.rpc('insert_user_for_owner', params: {
-              'p_user_id': userId,
-              'p_name': name,
-              'p_email': email,
-              'p_phone': null,
-            });
-            debugPrint('Created user record in database using function');
-          } catch (e) {
-            debugPrint('Error creating user record: $e');
-            // Continue - the RPC function should have created it
-          }
-        }
+          'name': name,
+          'phone': null,
+          'role': roleToStore,
+          'branch_id': branch.id,
+          'business_id': businessId,
+          'created_by': currentUser.id,
+        });
+
+        debugPrint('Stored pending user info for: $email');
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('User added successfully. They will receive an OTP when they first log in with their email.'),
+            backgroundColor: AppColors.success,
+            duration: Duration(seconds: 5),
+          ),
+        );
+
+        // Reload data after a short delay
+        await Future.delayed(const Duration(milliseconds: 300));
+        await _loadData();
+        return; // Exit early - user will be created when they log in
       }
 
       // Step 3: If making business owner (full or read-only), assign role to all branches of the business
@@ -1593,43 +1473,43 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         top: false,
         minimum: const EdgeInsets.only(bottom: 12),
         child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : _users.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32.0),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                          Icon(
-                            Icons.people_outline,
-                            size: 64,
+          ? const Center(child: CircularProgressIndicator())
+          : _users.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                        Icon(
+                          Icons.people_outline,
+                          size: 64,
+                          color: AppColors.textSecondary,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No users found',
+                          style: TextStyle(
+                            fontSize: 18,
                             color: AppColors.textSecondary,
                           ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'No users found',
-                            style: TextStyle(
-                              fontSize: 18,
-                              color: AppColors.textSecondary,
-                            ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Tap the + icon to add a user',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: AppColors.textTertiary,
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Tap the + icon to add a user',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: AppColors.textTertiary,
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  )
-                : ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _users.length,
-                      itemBuilder: (context, index) {
+                  ),
+                )
+              : ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _users.length,
+                    itemBuilder: (context, index) {
                       final userData = _users[index];
                       final user = userData['user'] as User;
                       final branches = userData['branches'] as List<Map<String, dynamic>>;
@@ -1781,7 +1661,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                       );
                     },
                   ),
-      ),
+            ),
     );
   }
 }

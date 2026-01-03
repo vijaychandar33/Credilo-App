@@ -30,6 +30,67 @@ CREATE TABLE branches (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Enable Row Level Security on branches table
+ALTER TABLE branches ENABLE ROW LEVEL SECURITY;
+
+-- Helper function to check if user has branch access (prevents infinite recursion in RLS)
+CREATE OR REPLACE FUNCTION check_user_has_branch_access(p_business_id uuid, p_user_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+BEGIN
+  -- This function bypasses RLS, so it won't trigger recursion
+  RETURN EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE business_id = p_business_id
+    AND user_id = p_user_id
+  );
+END;
+$$;
+
+-- Helper function to check if user has pending invitation
+CREATE OR REPLACE FUNCTION check_user_has_pending_invitation(p_business_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+AS $$
+DECLARE
+  v_user_email text;
+BEGIN
+  -- Get the authenticated user's email
+  SELECT email INTO v_user_email
+  FROM auth.users
+  WHERE id = auth.uid();
+  
+  -- Check if there's a pending_users record for this email and business
+  RETURN EXISTS (
+    SELECT 1 FROM pending_users
+    WHERE business_id = p_business_id
+    AND email = v_user_email
+  );
+END;
+$$;
+
+-- RLS Policy: Allow users to read branches if they have a branch_users record for that business
+CREATE POLICY "Users can read branches for their businesses"
+ON branches
+FOR SELECT
+USING (
+  check_user_has_branch_access(branches.business_id, auth.uid())
+);
+
+-- RLS Policy: Allow authenticated users to read branches if they have a pending_users record for that business
+-- This is needed during account creation when the user logs in via OTP
+CREATE POLICY "Users can read branches if they have pending invitation"
+ON branches
+FOR SELECT
+USING (
+  auth.uid() IS NOT NULL
+  AND check_user_has_pending_invitation(branches.business_id)
+);
+
 -- Branch users (junction table for user-branch-role)
 CREATE TABLE branch_users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -40,6 +101,74 @@ CREATE TABLE branch_users (
   permissions JSONB,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   UNIQUE(branch_id, user_id)
+);
+
+-- Pending users table (for storing user invitations before account creation)
+CREATE TABLE pending_users (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  phone TEXT,
+  role TEXT NOT NULL CHECK (role IN ('business_owner', 'business_owner_read_only', 'owner', 'manager', 'staff')),
+  branch_id UUID REFERENCES branches(id) ON DELETE CASCADE,
+  business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Enable Row Level Security on pending_users table
+ALTER TABLE pending_users ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policy: Allow business owners/managers to read pending_users for their businesses
+CREATE POLICY "Business owners can read pending users for their businesses"
+ON pending_users
+FOR SELECT
+USING (
+  EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE branch_users.business_id = pending_users.business_id
+    AND branch_users.user_id = auth.uid()
+    AND branch_users.role IN ('business_owner', 'business_owner_read_only', 'owner', 'manager')
+  )
+);
+
+-- RLS Policy: Allow authenticated users to read their own pending invitation (by email)
+CREATE POLICY "Users can read their own pending invitation"
+ON pending_users
+FOR SELECT
+USING (
+  auth.uid() IS NOT NULL
+  AND EXISTS (
+    SELECT 1 FROM auth.users
+    WHERE auth.users.id = auth.uid()
+    AND auth.users.email = pending_users.email
+  )
+);
+
+-- RLS Policy: Allow business owners/managers to insert pending_users for their businesses
+CREATE POLICY "Business owners can insert pending users"
+ON pending_users
+FOR INSERT
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE branch_users.business_id = pending_users.business_id
+    AND branch_users.user_id = auth.uid()
+    AND branch_users.role IN ('business_owner', 'business_owner_read_only', 'owner', 'manager')
+  )
+);
+
+-- RLS Policy: Allow business owners/managers to delete pending_users for their businesses
+CREATE POLICY "Business owners can delete pending users"
+ON pending_users
+FOR DELETE
+USING (
+  EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE branch_users.business_id = pending_users.business_id
+    AND branch_users.user_id = auth.uid()
+    AND branch_users.role IN ('business_owner', 'business_owner_read_only', 'owner', 'manager')
+  )
 );
 
 -- Cash expenses
@@ -275,6 +404,8 @@ CREATE INDEX idx_cash_closings_date ON cash_closings(date);
 CREATE INDEX idx_cash_closings_branch ON cash_closings(branch_id);
 CREATE INDEX idx_suppliers_business ON suppliers(business_id);
 CREATE INDEX idx_branch_users_business ON branch_users(business_id);
+CREATE INDEX idx_pending_users_email ON pending_users(email);
+CREATE INDEX idx_pending_users_business_id ON pending_users(business_id);
 
 -- Ensure each branch keeps at least one business owner
 CREATE OR REPLACE FUNCTION check_at_least_one_owner()

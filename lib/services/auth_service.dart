@@ -327,14 +327,14 @@ class AuthService {
         } else {
           // Regular user: get only assigned branches
           final branchesResponse = await Supabase.instance.client
-              .from('branch_users')
-              .select('branches(*)')
-              .eq('user_id', userId);
+            .from('branch_users')
+            .select('branches(*)')
+            .eq('user_id', userId);
 
           branches = (branchesResponse as List)
-              .where((item) => item['branches'] != null)
-              .map((item) => Branch.fromJson(item['branches']))
-              .toList();
+            .where((item) => item['branches'] != null)
+            .map((item) => Branch.fromJson(item['branches']))
+            .toList();
         }
 
         await setUser(user, branches);

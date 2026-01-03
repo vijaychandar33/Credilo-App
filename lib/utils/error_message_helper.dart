@@ -7,7 +7,7 @@ class ErrorMessageHelper {
     if (errorString.contains('invalid login credentials') ||
         errorString.contains('invalid credentials') ||
         errorString.contains('invalid_credentials')) {
-      return 'Invalid email or password. Please check and try again.';
+      return 'Invalid email or verification code. Please check and try again.';
     }
     
     if (errorString.contains('user_already_exists') ||
