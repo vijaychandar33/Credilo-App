@@ -16,6 +16,7 @@ class UserManagementScreen extends StatefulWidget {
 class _UserManagementScreenState extends State<UserManagementScreen> {
   final AuthService _authService = AuthService();
   List<Map<String, dynamic>> _users = [];
+  List<Map<String, dynamic>> _pendingUsers = [];
   List<Branch> _allBranches = [];
   bool _isLoading = true;
   bool _isBusinessOwner = false;
@@ -291,11 +292,42 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       
       _users = filteredUsers;
       debugPrint('Final users count: ${_users.length}');
+      
+      // Get business IDs from managed branches
+      final Set<String> managedBusinessIds = _allBranches.map((b) => b.businessId).toSet();
+      debugPrint('Managed business IDs: ${managedBusinessIds.join(", ")}');
+      
+      // Also get business IDs from branch_users if user is business owner
+      if (_isBusinessOwner) {
+        try {
+          final ownerBusinesses = await Supabase.instance.client
+              .from('branch_users')
+              .select('business_id')
+              .eq('user_id', currentUser.id)
+              .or('role.eq.business_owner,role.eq.business_owner_read_only');
+          
+          final ownerBusinessIds = (ownerBusinesses as List)
+              .map((r) => r['business_id'] as String?)
+              .whereType<String>()
+              .toSet();
+          
+          managedBusinessIds.addAll(ownerBusinessIds);
+          debugPrint('Added business IDs from branch_users: ${ownerBusinessIds.join(", ")}');
+        } catch (e) {
+          debugPrint('Error getting business IDs from branch_users: $e');
+        }
+      }
+      
+      debugPrint('Final managed business IDs: ${managedBusinessIds.join(", ")}');
+      
+      // Load pending users for the businesses the current user manages
+      await _loadPendingUsers(businessIds: managedBusinessIds);
     } catch (e) {
       debugPrint('Error loading users: $e');
       // Ensure we still set loading to false and show empty list on error
       setState(() {
         _users = _users; // Keep existing users if any
+        _pendingUsers = [];
         _isLoading = false;
       });
     } finally {
@@ -303,6 +335,102 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       setState(() {
         _isLoading = false;
       });
+      }
+    }
+  }
+
+  Future<void> _loadPendingUsers({required Set<String> businessIds}) async {
+    try {
+      debugPrint('_loadPendingUsers called with businessIds: ${businessIds.toList()}');
+      
+      if (businessIds.isEmpty) {
+        debugPrint('No business IDs, clearing pending users');
+        setState(() {
+          _pendingUsers = [];
+        });
+        return;
+      }
+
+      // Get all pending users for the businesses the current user manages
+      final List<Map<String, dynamic>> pendingUsersList = [];
+      
+      // Get all existing user emails to filter out pending users that are already verified
+      final Set<String> existingUserEmails = {};
+      try {
+        final existingUsers = await Supabase.instance.client
+            .from('users')
+            .select('email');
+        for (var user in existingUsers as List) {
+          final email = user['email'] as String?;
+          if (email != null && email.isNotEmpty) {
+            existingUserEmails.add(email.toLowerCase().trim());
+          }
+        }
+        debugPrint('Found ${existingUserEmails.length} existing user emails to filter against');
+      } catch (e) {
+        debugPrint('Error loading existing user emails: $e');
+      }
+      
+      for (var businessId in businessIds) {
+        try {
+          debugPrint('Loading pending users for business: $businessId');
+          
+          // Query pending users - simplified, no branch join needed
+          final pendingResponse = await Supabase.instance.client
+              .from('pending_users')
+              .select('id, name, email, business_id')
+              .eq('business_id', businessId);
+          
+          final pendingList = pendingResponse as List;
+          debugPrint('Found ${pendingList.length} pending users for business $businessId');
+          
+          for (var pending in pendingList) {
+            final pendingEmail = (pending['email'] as String? ?? '').toLowerCase().trim();
+            
+            // Skip if this pending user already exists as a verified user
+            if (existingUserEmails.contains(pendingEmail)) {
+              debugPrint('Skipping pending user ${pending['name']} (${pending['email']}) - already exists as verified user');
+              // Also delete the pending_users record since user is already verified
+              try {
+                await Supabase.instance.client
+                    .from('pending_users')
+                    .delete()
+                    .eq('id', pending['id']);
+                debugPrint('Deleted stale pending_users record for ${pending['email']}');
+              } catch (e) {
+                debugPrint('Error deleting stale pending_users record: $e');
+              }
+              continue;
+            }
+            
+            pendingUsersList.add({
+              'id': pending['id'],
+              'email': pending['email'],
+              'name': pending['name'],
+            });
+            debugPrint('Added pending user: ${pending['name']} (${pending['email']})');
+          }
+        } catch (e) {
+          debugPrint('Error loading pending users for business $businessId: $e');
+          debugPrint('Error details: ${e.toString()}');
+          // Continue with other businesses even if one fails
+        }
+      }
+
+      debugPrint('Total pending users collected: ${pendingUsersList.length}');
+      if (mounted) {
+        setState(() {
+          _pendingUsers = pendingUsersList;
+        });
+        debugPrint('Loaded ${_pendingUsers.length} pending users into state');
+      }
+    } catch (e) {
+      debugPrint('Error loading pending users: $e');
+      debugPrint('Error stack: ${StackTrace.current}');
+      if (mounted) {
+        setState(() {
+          _pendingUsers = [];
+        });
       }
     }
   }
@@ -432,7 +560,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     border: OutlineInputBorder(),
                   ),
                   items: (_isBusinessOwner 
-                    ? [UserRole.owner, UserRole.manager, UserRole.staff]
+                    ? [UserRole.owner, UserRole.ownerReadOnly, UserRole.manager, UserRole.staff]
                     : [UserRole.manager, UserRole.staff]
                   ).map((role) {
                     String roleName = _formatRoleName(role);
@@ -536,7 +664,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
             ? 'business_owner' 
             : (makeBusinessOwnerReadOnly 
                 ? 'business_owner_read_only' 
-                : role.toString().split('.').last);
+                : _roleToDbString(role));
 
         // Store pending user info
         await supabase.from('pending_users').insert({
@@ -643,11 +771,11 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
         if (existingBranchUser != null) {
           // User already assigned to this branch, just update role if different
-          if (existingBranchUser['role'] != role.toString().split('.').last) {
+          if (existingBranchUser['role'] != _roleToDbString(role)) {
             await supabase
                 .from('branch_users')
                 .update({
-                  'role': role.toString().split('.').last,
+                  'role': _roleToDbString(role),
                   'business_id': businessId,
                 })
                 .eq('id', existingBranchUser['id']);
@@ -661,7 +789,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
             'user_id': userId,
             'branch_id': branch.id,
             'business_id': businessId,
-            'role': role.toString().split('.').last,
+            'role': _roleToDbString(role),
           });
           debugPrint('Assigned user to branch');
         }
@@ -712,6 +840,15 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     });
   }
 
+  // Convert UserRole enum to database string (snake_case)
+  String _roleToDbString(UserRole role) {
+    final camelCase = role.toString().split('.').last;
+    return camelCase.replaceAllMapped(
+      RegExp(r'([A-Z])'),
+      (match) => '_${match.group(1)!.toLowerCase()}',
+    );
+  }
+
   String _formatRoleName(UserRole role) {
     String roleName = role.toString().split('.').last;
     // Convert camelCase to Title Case with spaces
@@ -723,12 +860,16 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     if (roleName.isNotEmpty) {
       roleName = roleName[0].toUpperCase() + roleName.substring(1);
     }
-    // Handle special case for businessOwnerReadOnly
+    // Handle special cases for read-only roles
     if (role == UserRole.businessOwnerReadOnly) {
       return 'Business Owner (Read-Only)';
     }
+    if (role == UserRole.ownerReadOnly) {
+      return 'Owner (Read-Only)';
+    }
     return roleName;
   }
+
 
   // Remove user from all branches
   Future<void> _removeUserFromAllBranches(User user, List<Map<String, dynamic>> branches) async {
@@ -1063,11 +1204,18 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     ..._allBranches.map((branch) {
                       final existingAssignment = branchAssignments[branch.id];
                       final isAssigned = existingAssignment != null;
-                      UserRole currentRole = isAssigned
-                          ? UserRole.values.firstWhere(
-                              (r) => r.toString().split('.').last == (existingAssignment['role'] as String).toLowerCase(),
-                              orElse: () => UserRole.staff,
-                            )
+                      final dbRole = isAssigned ? (existingAssignment['role'] as String).toLowerCase() : null;
+                      UserRole currentRole = isAssigned && dbRole != null
+                          ? (() {
+                              // If current role is business owner, default to owner for dropdown
+                              if (dbRole == 'business_owner' || dbRole == 'business_owner_read_only') {
+                                return UserRole.owner;
+                              }
+                              return UserRole.values.firstWhere(
+                                (r) => r.toString().split('.').last == dbRole,
+                                orElse: () => UserRole.staff,
+                              );
+                            })()
                           : UserRole.staff;
 
                       return StatefulBuilder(
@@ -1089,8 +1237,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                             branchAssignments[branch.id] = {
                                               'branch': branch,
                                               'role': _isBusinessOwner 
-                                                ? UserRole.owner.toString().split('.').last
-                                                : UserRole.staff.toString().split('.').last,
+                                                ? _roleToDbString(UserRole.owner)
+                                                : _roleToDbString(UserRole.staff),
                                               'branch_user_id': null, // New assignment
                                             };
                                           } else {
@@ -1123,10 +1271,10 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                     items: (_isBusinessOwner 
                                       ? [
                                           UserRole.owner,
-                                          UserRole.businessOwnerReadOnly, // Show right after Owner
+                                          UserRole.ownerReadOnly,
                                           UserRole.manager,
                                           UserRole.staff
-                                        ].where((role) => role != UserRole.businessOwner)
+                                        ].where((role) => role != UserRole.businessOwner && role != UserRole.businessOwnerReadOnly)
                                       : [UserRole.manager, UserRole.staff]
                                     ).map((role) {
                                       String roleName = _formatRoleName(role);
@@ -1138,7 +1286,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                     onChanged: (role) {
                                       setItemState(() {
                                         if (role != null) {
-                                          branchAssignments[branch.id]!['role'] = role.toString().split('.').last;
+                                          branchAssignments[branch.id]!['role'] = _roleToDbString(role);
                                           currentRole = role;
                                         }
                                       });
@@ -1458,6 +1606,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Debug: Print counts
+    debugPrint('Build: _users.length = ${_users.length}, _pendingUsers.length = ${_pendingUsers.length}');
+    
     return Scaffold(
       appBar: AppBar(
         title: const Text('User Management'),
@@ -1474,7 +1625,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         minimum: const EdgeInsets.only(bottom: 12),
         child: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _users.isEmpty
+          : _users.isEmpty && _pendingUsers.isEmpty
               ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(32.0),
@@ -1508,11 +1659,19 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 )
               : ListView.builder(
                     padding: const EdgeInsets.all(16),
-                    itemCount: _users.length,
+                    itemCount: _users.length + _pendingUsers.length,
                     itemBuilder: (context, index) {
-                      final userData = _users[index];
-                      final user = userData['user'] as User;
-                      final branches = userData['branches'] as List<Map<String, dynamic>>;
+                      // Safety check
+                      if (index >= _users.length + _pendingUsers.length) {
+                        return const SizedBox.shrink();
+                      }
+                      
+                      // Check if this is a pending user or regular user
+                      if (index < _users.length) {
+                        // Regular user
+                        final userData = _users[index];
+                        final user = userData['user'] as User;
+                        final branches = userData['branches'] as List<Map<String, dynamic>>;
                       
                       // Check if user is a business owner or owner
                       final isUserBusinessOwner = _isUserBusinessOwner(branches);
@@ -1521,13 +1680,16 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                         (b['role'] as String).toLowerCase() == 'owner' && 
                         (b['role'] as String).toLowerCase() != 'business_owner'
                       );
+                      final isUserOwnerReadOnly = branches.any((b) => 
+                        (b['role'] as String).toLowerCase() == 'owner_read_only'
+                      );
                       
                       // Hide delete button for current user's own account
                       final currentUser = _authService.currentUser;
                       final isCurrentUser = currentUser != null && currentUser.id == user.id;
                       
-                      // For owner-only users, hide edit/delete for business_owner and owner roles
-                      final canEditUser = _isBusinessOwner || (!isUserBusinessOwner && !isUserOwner);
+                      // For owner-only users, hide edit/delete for business_owner, owner, and owner_read_only roles
+                      final canEditUser = _isBusinessOwner || (!isUserBusinessOwner && !isUserOwner && !isUserOwnerReadOnly);
                       // Show delete button for business owners (full) and business owner read-only (not self, only if current user is business owner)
                       final canDeleteUser = _isBusinessOwner && (isUserBusinessOwner || isUserBusinessOwnerReadOnly) && !isCurrentUser;
 
@@ -1606,12 +1768,13 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                             final isBranchBusinessOwner = branchRole == 'business_owner';
                             final isBranchBusinessOwnerReadOnly = branchRole == 'business_owner_read_only';
                             final isBranchOwner = branchRole == 'owner';
+                            final isBranchOwnerReadOnly = branchRole == 'owner_read_only';
                             // Hide branch delete buttons for business owners (full and read-only) (they have complete delete button)
-                            // Also hide for owners and current user
+                            // Also hide for owners (full and read-only) and current user
                             final canDeleteBranch = !isCurrentUser && 
                               !isUserBusinessOwner && // Don't show branch delete for business owners (full)
                               !isUserBusinessOwnerReadOnly && // Don't show branch delete for business owners (read-only)
-                              (_isBusinessOwner || (!isBranchBusinessOwner && !isBranchBusinessOwnerReadOnly && !isBranchOwner));
+                              (_isBusinessOwner || (!isBranchBusinessOwner && !isBranchBusinessOwnerReadOnly && !isBranchOwner && !isBranchOwnerReadOnly));
                             
                             return ListTile(
                               title: Text(branch.name),
@@ -1659,6 +1822,125 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                           }).toList(),
                         ),
                       );
+                      } else {
+                        // Pending user - simplified display
+                        final pendingIndex = index - _users.length;
+                        if (pendingIndex >= _pendingUsers.length) {
+                          return const SizedBox.shrink();
+                        }
+                        
+                        final pendingData = _pendingUsers[pendingIndex];
+                        final pendingName = pendingData['name'] as String;
+                        final pendingEmail = pendingData['email'] as String;
+                        final pendingId = pendingData['id'] as String;
+                        
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          color: AppColors.primary.withValues(alpha: 0.1),
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: AppColors.primary.withValues(alpha: 0.3),
+                              child: Text(pendingName[0].toUpperCase()),
+                            ),
+                            title: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              pendingName,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Chip(
+                                            label: const Text(
+                                              'PENDING',
+                                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                                            ),
+                                            backgroundColor: AppColors.primary,
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+                                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                          ),
+                                        ],
+                                      ),
+                                      Text(
+                                        pendingEmail,
+                                        style: Theme.of(context).textTheme.bodySmall,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete, color: AppColors.error),
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                  onPressed: () {
+                                    showDialog(
+                                      context: context,
+                                      builder: (context) => AlertDialog(
+                                        title: const Text('Delete Pending User'),
+                                        content: Text(
+                                          'Remove pending invitation for $pendingName?',
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(context),
+                                            child: const Text('Cancel'),
+                                          ),
+                                            ElevatedButton(
+                                              onPressed: () async {
+                                                final navigator = Navigator.of(context);
+                                                final messenger = ScaffoldMessenger.of(context);
+                                                navigator.pop();
+                                                
+                                                try {
+                                                  await Supabase.instance.client
+                                                      .from('pending_users')
+                                                      .delete()
+                                                      .eq('id', pendingId);
+                                                  
+                                                  if (!mounted) return;
+                                                  messenger.showSnackBar(
+                                                    const SnackBar(
+                                                      content: Text('Pending user removed'),
+                                                      backgroundColor: AppColors.success,
+                                                    ),
+                                                  );
+                                                  await _loadData();
+                                                } catch (e) {
+                                                  debugPrint('Error deleting pending user: $e');
+                                                  if (!mounted) return;
+                                                  final errorMessage = ErrorMessageHelper.getUserFriendlyError(e);
+                                                  messenger.showSnackBar(
+                                                    SnackBar(
+                                                      content: Text(errorMessage),
+                                                      backgroundColor: AppColors.error,
+                                                    ),
+                                                  );
+                                                }
+                                              },
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: AppColors.error,
+                                            ),
+                                            child: const Text('Delete'),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                  tooltip: 'Delete Pending User',
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }
                     },
                   ),
             ),

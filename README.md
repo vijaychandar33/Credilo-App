@@ -25,11 +25,14 @@ Built by ZyntelX, credilo helps businesses track and manage their daily financia
 - Branch status management (active/inactive)
 
 ### Role-Based Access Control
-- **Business Owner**: Full access to all branches and features
+- **Business Owner**: Full access to all branches and features, can manage users
+- **Business Owner (Read-Only)**: Read-only access to all branches, cannot manage users
 - **Owner**: Full access to assigned branches
+- **Owner (Read-Only)**: Read-only access to assigned branches
 - **Manager**: Can edit today and yesterday's data
 - **Staff**: Can only edit today's data
 - Date-based permission system prevents unauthorized edits
+- Pending user invitations with automatic account provisioning
 
 ### Supplier Management
 - Add, edit, and delete suppliers
@@ -45,10 +48,13 @@ Built by ZyntelX, credilo helps businesses track and manage their daily financia
 - **Dues Overview**: Track receivables and payables
 
 ### User Management
+- OTP-based authentication (email verification)
 - User registration and authentication
 - Role assignment per branch
 - User profile management
 - Branch-user relationship management
+- Pending user invitations with automatic role assignment
+- User-friendly error messages
 
 ## Tech Stack
 
@@ -157,7 +163,8 @@ lib/
 
 3. **Set up Supabase**
    - Create your Supabase project at [supabase.com](https://supabase.com)
-   - Run the SQL schema from `supabase_schema.sql` in the Supabase SQL Editor
+   - Go to SQL Editor in your Supabase dashboard
+   - Run the entire `supabase_schema.sql` file to create all tables, functions, triggers, and RLS policies
    - Get your Supabase URL and anon key from Settings → API
 
 4. **Configure Supabase**
@@ -169,7 +176,11 @@ lib/
    }
    ```
 
-5. **Run the app**
+5. **Configure Email Templates (Optional)**
+   - Go to Authentication → Email Templates in Supabase dashboard
+   - Update the OTP email template to use 8-digit codes (see `EMAIL_TEMPLATE_8DIGIT.html` for reference)
+
+6. **Run the app**
    ```bash
    flutter run
    ```
@@ -271,10 +282,10 @@ flutter build ios --release
 
 ### Supabase Setup
 1. Create a Supabase project at [supabase.com](https://supabase.com)
-2. Go to SQL Editor and run the entire `supabase_schema.sql` file
+2. Go to SQL Editor and run the entire `supabase_schema.sql` file (this creates all tables, functions, triggers, and RLS policies)
 3. Get your project URL and anon key from Settings → API
 4. Update `lib/config/supabase_config.dart` with your credentials
-5. Configure email templates in Authentication → Email Templates (use the 8-digit OTP template from `EMAIL_TEMPLATE_8DIGIT.html`)
+5. Configure email templates in Authentication → Email Templates (optional: use the 8-digit OTP template from `EMAIL_TEMPLATE_8DIGIT.html` for better UX)
 
 ### Environment Variables
 Supabase credentials are stored in `lib/config/supabase_config.dart`. For production, consider using environment variables or secure storage.
@@ -327,5 +338,5 @@ For issues and questions:
 
 ---
 
-**Version**: 1.0.0+1  
+**Version**: 1.1.3+5  
 **Last Updated**: 2024

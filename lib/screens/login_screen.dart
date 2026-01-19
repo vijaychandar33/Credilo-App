@@ -73,12 +73,20 @@ class _LoginScreenState extends State<LoginScreen> {
         _isLoading = false;
       });
 
+      debugPrint('Auth: Error sending OTP: $e');
+      debugPrint('Auth: Error type: ${e.runtimeType}');
+      if (e is Exception) {
+        debugPrint('Auth: Exception message: ${e.toString()}');
+      }
+
       if (mounted) {
+        // Always show user-friendly messages (technical details are logged via debugPrint)
         final friendlyMessage = ErrorMessageHelper.getUserFriendlyError(e);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(friendlyMessage),
             backgroundColor: AppColors.error,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
@@ -88,49 +96,174 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _onOtpVerified() async {
     try {
       final supabase = Supabase.instance.client;
+      
+      // Wait a bit to ensure session is fully established
+      await Future.delayed(const Duration(milliseconds: 200));
+      
+      // Refresh session to ensure it's available
+      try {
+        await supabase.auth.refreshSession();
+      } catch (e) {
+        debugPrint('Auth: Warning - could not refresh session: $e');
+        // Continue anyway, session might already be valid
+      }
+      
       final userId = supabase.auth.currentUser?.id;
       if (userId == null) {
-        throw Exception('User not found after OTP verification');
+        debugPrint('Auth: ERROR - currentUser is null after OTP verification');
+        throw Exception('User not found after OTP verification. Please try again.');
       }
 
-      debugPrint('Auth: OTP verified, checking if user exists in database...');
+      debugPrint('Auth: OTP verified, user ID: $userId');
+      debugPrint('Auth: Session exists: ${supabase.auth.currentSession != null}');
 
       final userEmail = supabase.auth.currentUser?.email ?? '';
+      debugPrint('Auth: User email: $userEmail');
+      
+      if (userEmail.isEmpty) {
+        debugPrint('Auth: WARNING - user email is empty');
+      }
 
       // Check if user exists in database
+      debugPrint('Auth: Querying users table for ID: $userId');
       final userResponse = await supabase
           .from('users')
           .select()
           .eq('id', userId)
           .maybeSingle();
+      debugPrint('Auth: User query result: ${userResponse != null ? "found" : "not found"}');
 
       if (userResponse != null) {
-        // User exists - login flow
-        debugPrint('Auth: User exists, proceeding with login...');
-        setState(() {
-          _otpVerified = true;
-        });
-        await _loadUserData(userId);
-      } else {
-        // User doesn't exist - check if they have pending invitation
-        debugPrint('Auth: User does not exist, checking for pending invitation...');
+        // User exists - check if they have pending invitation (might be new role assignment)
+        debugPrint('Auth: User exists, checking for pending invitation with email: $userEmail');
         final pendingUserResponse = await supabase
             .from('pending_users')
             .select()
             .eq('email', userEmail)
-            .maybeSingle();
+            .maybeSingle()
+            .catchError((e) {
+              debugPrint('Auth: Error querying pending_users: $e');
+              return null;
+            });
 
         if (pendingUserResponse != null) {
-          // User has pending invitation - create user record and assign role/branch
-          debugPrint('Auth: Found pending invitation, creating user record...');
-          await _createUserFromPending(userId, pendingUserResponse);
+          // User exists but has pending invitation - assign role/branch without creating user
+          debugPrint('Auth: Found pending invitation for existing user, assigning role/branch...');
+          await _assignRoleFromPending(userId, pendingUserResponse);
           setState(() {
             _otpVerified = true;
           });
           await _loadUserData(userId);
         } else {
+          // User exists and no pending invitation - normal login flow
+          debugPrint('Auth: User exists, proceeding with login...');
+          setState(() {
+            _otpVerified = true;
+          });
+          await _loadUserData(userId);
+        }
+      } else {
+        // User doesn't exist - check if they have pending invitation
+        debugPrint('Auth: User does not exist in users table, checking for pending invitation');
+        debugPrint('Auth: User email from auth: "$userEmail"');
+        
+        Map<String, dynamic>? pendingUserResponse;
+        try {
+          // First try exact email match
+          debugPrint('Auth: Querying pending_users with exact email: $userEmail');
+          var response = await supabase
+              .from('pending_users')
+              .select()
+              .eq('email', userEmail);
+          
+          var responseList = response as List;
+          debugPrint('Auth: Exact email query returned: ${responseList.length} results');
+          
+          if (responseList.isEmpty) {
+            // Try trimmed email
+            debugPrint('Auth: Trying with trimmed email: "${userEmail.trim()}"');
+            response = await supabase
+                .from('pending_users')
+                .select()
+                .eq('email', userEmail.trim());
+            responseList = response as List;
+            debugPrint('Auth: Trimmed email query returned: ${responseList.length} results');
+          }
+          
+          if (responseList.isEmpty) {
+            // Try case-insensitive by fetching all and matching
+            debugPrint('Auth: Trying case-insensitive match by fetching all pending users');
+            final allPending = await supabase
+                .from('pending_users')
+                .select();
+            final allPendingList = allPending as List;
+            debugPrint('Auth: Total pending users in DB: ${allPendingList.length}');
+            
+            final userEmailLower = userEmail.trim().toLowerCase();
+            for (var pending in allPendingList) {
+              final pendingEmail = (pending['email'] as String? ?? '').trim().toLowerCase();
+              debugPrint('Auth: Comparing "$userEmailLower" with "$pendingEmail"');
+              if (pendingEmail == userEmailLower) {
+                pendingUserResponse = pending as Map<String, dynamic>;
+                debugPrint('Auth: ✓ Found pending user via case-insensitive match: ${pendingUserResponse['name']}');
+                break;
+              }
+            }
+          } else {
+            pendingUserResponse = responseList[0] as Map<String, dynamic>;
+            debugPrint('Auth: ✓ Found pending user: ${pendingUserResponse['name']} with role: ${pendingUserResponse['role']}');
+          }
+          
+          if (pendingUserResponse == null) {
+            debugPrint('Auth: ✗ No pending user found for email: $userEmail');
+          }
+        } catch (e) {
+          debugPrint('Auth: ✗ Error querying pending_users: $e');
+          debugPrint('Auth: Error type: ${e.runtimeType}');
+          debugPrint('Auth: Error details: ${e.toString()}');
+          // Don't return null yet - let the code continue to show registration form
+        }
+
+        if (pendingUserResponse != null) {
+          // User has pending invitation - create user record and assign role/branch
+          debugPrint('Auth: ✓✓✓ FOUND PENDING INVITATION ✓✓✓');
+          debugPrint('Auth: Pending user name: ${pendingUserResponse['name']}');
+          debugPrint('Auth: Pending user role: ${pendingUserResponse['role']}');
+          debugPrint('Auth: Pending user branch_id: ${pendingUserResponse['branch_id']}');
+          debugPrint('Auth: Pending user business_id: ${pendingUserResponse['business_id']}');
+          debugPrint('Auth: Creating user from pending invitation...');
+          
+          try {
+            await _createUserFromPending(userId, pendingUserResponse);
+            debugPrint('Auth: ✓ Successfully created user from pending invitation');
+            setState(() {
+              _otpVerified = true;
+            });
+            await _loadUserData(userId);
+            debugPrint('Auth: ✓ User data loaded, login complete');
+          } catch (e) {
+            debugPrint('Auth: ✗✗✗ ERROR creating user from pending ✗✗✗');
+            debugPrint('Auth: Error: $e');
+            debugPrint('Auth: Error type: ${e.runtimeType}');
+            debugPrint('Auth: Error stack: ${StackTrace.current}');
+            // Show error to user
+            if (mounted) {
+              final friendlyMessage = ErrorMessageHelper.getUserFriendlyError(e);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Error creating account: $friendlyMessage'),
+                  backgroundColor: AppColors.error,
+                  duration: const Duration(seconds: 5),
+                ),
+              );
+            }
+            // Don't rethrow - let user see the error and try again
+          }
+        } else {
           // No pending invitation - registration flow
-          debugPrint('Auth: No pending invitation, showing registration form...');
+          debugPrint('Auth: ✗✗✗ NO PENDING INVITATION FOUND ✗✗✗');
+          debugPrint('Auth: Email searched: $userEmail');
+          debugPrint('Auth: Showing registration form...');
           setState(() {
             _otpVerified = true;
             _showRegistrationForm = true;
@@ -230,12 +363,13 @@ class _LoginScreenState extends State<LoginScreen> {
         
         debugPrint('Successfully assigned $role role to $branchesAssigned branches for business $businessId');
       } else {
-        // Assign to specific branch
+        // Assign to specific branch (for owner, owner_read_only, manager, staff roles)
         if (branchId == null || branchId.isEmpty) {
           throw Exception('Branch ID is required for non-business-owner roles');
         }
         
         try {
+          debugPrint('Assigning $role role to branch $branchId for user $userId');
           await supabase.from('branch_users').insert({
             'user_id': userId,
             'branch_id': branchId,
@@ -246,7 +380,9 @@ class _LoginScreenState extends State<LoginScreen> {
           debugPrint('Successfully assigned $role role to branch $branchId');
         } catch (e) {
           debugPrint('Error assigning role to branch $branchId: $e');
-          throw Exception('Failed to assign role to branch: $e');
+          debugPrint('Error details: ${e.toString()}');
+          // Re-throw with more context
+          throw Exception('Failed to assign $role role to branch $branchId: $e');
         }
       }
 
@@ -272,6 +408,141 @@ class _LoginScreenState extends State<LoginScreen> {
       debugPrint('Deleted pending user record for ${pendingUser['email']}');
     } catch (e) {
       debugPrint('Error creating user from pending invitation: $e');
+      debugPrint('Stack trace: ${StackTrace.current}');
+      rethrow;
+    }
+  }
+
+  // Assign role and branch to existing user from pending invitation
+  Future<void> _assignRoleFromPending(String userId, Map<String, dynamic> pendingUser) async {
+    try {
+      final supabase = Supabase.instance.client;
+
+      // Update user name if different
+      final currentUser = await supabase
+          .from('users')
+          .select('name')
+          .eq('id', userId)
+          .single();
+      
+      if (currentUser['name'] != pendingUser['name']) {
+        await supabase
+            .from('users')
+            .update({'name': pendingUser['name']})
+            .eq('id', userId);
+        debugPrint('Updated user name from ${currentUser['name']} to ${pendingUser['name']}');
+      }
+
+      // Update user metadata in Supabase Auth to set display name
+      await supabase.auth.updateUser(
+        UserAttributes(
+          data: {
+            'full_name': pendingUser['name'],
+            'display_name': pendingUser['name'],
+          },
+        ),
+      );
+      debugPrint('Updated auth.users metadata for display name.');
+
+      // Assign role and branch
+      final role = pendingUser['role'] as String;
+      final branchId = pendingUser['branch_id'] as String?;
+      final businessId = pendingUser['business_id'] as String?;
+
+      if (businessId == null || businessId.isEmpty) {
+        throw Exception('Business ID is missing from pending user record');
+      }
+
+      debugPrint('Pending user details - Role: $role, Branch ID: $branchId, Business ID: $businessId');
+
+      int branchesAssigned = 0;
+
+      // If business owner or business owner read-only, assign to all branches
+      if (role == 'business_owner' || role == 'business_owner_read_only') {
+        final allBranchesResponse = await supabase
+            .from('branches')
+            .select('id')
+            .eq('business_id', businessId);
+
+        final allBranches = allBranchesResponse as List;
+        debugPrint('Found ${allBranches.length} branches for business $businessId');
+
+        if (allBranches.isEmpty) {
+          throw Exception('No branches found for business $businessId. Cannot assign business owner role.');
+        }
+
+        for (var branchItem in allBranches) {
+          try {
+            final bid = branchItem['id'] as String?;
+            if (bid == null || bid.isEmpty) {
+              debugPrint('Warning: Skipping branch with null or empty ID');
+              continue;
+            }
+
+            // Use upsert to handle existing assignments
+            await supabase.from('branch_users').upsert({
+              'user_id': userId,
+              'branch_id': bid,
+              'business_id': businessId,
+              'role': role,
+            }, onConflict: 'branch_id,user_id');
+            branchesAssigned++;
+            debugPrint('Successfully assigned $role role to branch $bid');
+          } catch (e) {
+            debugPrint('Error assigning role to branch ${branchItem['id']}: $e');
+            // Continue with other branches even if one fails
+          }
+        }
+
+        if (branchesAssigned == 0) {
+          throw Exception('Failed to assign user to any branches. Role assignment failed.');
+        }
+
+        debugPrint('Successfully assigned $role role to $branchesAssigned branches for business $businessId');
+      } else {
+        // Assign to specific branch
+        if (branchId == null || branchId.isEmpty) {
+          throw Exception('Branch ID is required for non-business-owner roles');
+        }
+
+        try {
+          // Use upsert to handle existing assignments
+          await supabase.from('branch_users').upsert({
+            'user_id': userId,
+            'branch_id': branchId,
+            'business_id': businessId,
+            'role': role,
+          }, onConflict: 'branch_id,user_id');
+          branchesAssigned = 1;
+          debugPrint('Successfully assigned $role role to branch $branchId');
+        } catch (e) {
+          debugPrint('Error assigning role to branch $branchId: $e');
+          throw Exception('Failed to assign role to branch: $e');
+        }
+      }
+
+      // Verify that branch_users entries were created
+      final verifyResponse = await supabase
+          .from('branch_users')
+          .select('id')
+          .eq('user_id', userId);
+
+      final verifyCount = (verifyResponse as List).length;
+      debugPrint('Verification: Found $verifyCount branch_users entries for user $userId');
+
+      if (verifyCount == 0) {
+        throw Exception('No branch assignments were created. Verification failed.');
+      }
+
+      // Delete pending user record only after successful assignment
+      await supabase
+          .from('pending_users')
+          .delete()
+          .eq('email', pendingUser['email']);
+
+      debugPrint('Deleted pending user record for ${pendingUser['email']}');
+    } catch (e) {
+      debugPrint('Error assigning role from pending invitation: $e');
       debugPrint('Stack trace: ${StackTrace.current}');
       rethrow;
     }
@@ -337,7 +608,7 @@ class _LoginScreenState extends State<LoginScreen> {
         } else {
           // Regular user: get only assigned branches
           debugPrint('Loading branches for regular user: $userId');
-          final branchesResponse = await Supabase.instance.client
+        final branchesResponse = await Supabase.instance.client
             .from('branch_users')
             .select('branches(*)')
             .eq('user_id', userId);
@@ -346,7 +617,7 @@ class _LoginScreenState extends State<LoginScreen> {
             .where((item) => item['branches'] != null)
             .map((item) => Branch.fromJson(item['branches']))
             .toList();
-          
+
           debugPrint('Loaded ${branches.length} branches for regular user');
         }
 
@@ -741,7 +1012,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ],
                         ),
                       ),
-                    ),
+                  ),
                   const SizedBox(height: 32),
                   SizedBox(
                     height: 50,

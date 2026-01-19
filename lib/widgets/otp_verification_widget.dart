@@ -48,12 +48,21 @@ class _OtpVerificationWidgetState extends State<OtpVerificationWidget> {
       );
 
       if (response.session != null) {
+        // Wait a bit for session to be fully established
+        await Future.delayed(const Duration(milliseconds: 100));
+        
+        // Verify session is available
+        final currentUser = Supabase.instance.client.auth.currentUser;
+        if (currentUser == null) {
+          throw Exception('Session not established after OTP verification');
+        }
+        
         // OTP verified successfully
         if (mounted) {
           widget.onVerified();
         }
       } else {
-        throw Exception('OTP verification failed');
+        throw Exception('OTP verification failed: No session returned');
       }
     } catch (e) {
       setState(() {
@@ -61,6 +70,8 @@ class _OtpVerificationWidgetState extends State<OtpVerificationWidget> {
       });
 
       if (mounted) {
+        // Log the actual error for debugging
+        debugPrint('OTP verification error: $e');
         final friendlyMessage = ErrorMessageHelper.getUserFriendlyError(e);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

@@ -397,8 +397,8 @@ class AuthService {
     final role = currentRole;
     if (role == null) return false;
     
-    // Business owner read-only cannot edit any date
-    if (role == UserRole.businessOwnerReadOnly) {
+    // Business owner read-only and owner read-only cannot edit any date
+    if (role == UserRole.businessOwnerReadOnly || role == UserRole.ownerReadOnly) {
       return false;
     }
     
@@ -426,8 +426,8 @@ class AuthService {
     final dateOnly = DateTime(date.year, date.month, date.day);
     final yesterday = businessDateOnly.subtract(const Duration(days: 1));
     
-    if (role == UserRole.businessOwner || role == UserRole.businessOwnerReadOnly || role == UserRole.owner) {
-      return true; // Business owner, business owner read-only & owner can view any date
+    if (role == UserRole.businessOwner || role == UserRole.businessOwnerReadOnly || role == UserRole.owner || role == UserRole.ownerReadOnly) {
+      return true; // Business owner, business owner read-only, owner & owner read-only can view any date
     } else if (role == UserRole.manager) {
       return dateOnly == businessDateOnly || dateOnly == yesterday;
     } else if (role == UserRole.staff) {
@@ -438,8 +438,8 @@ class AuthService {
 
   bool canDelete() {
     final role = currentRole;
-    // Business owner read-only cannot delete
-    if (role == UserRole.businessOwnerReadOnly) {
+    // Business owner read-only and owner read-only cannot delete
+    if (role == UserRole.businessOwnerReadOnly || role == UserRole.ownerReadOnly) {
       return false;
     }
     return role == UserRole.businessOwner || role == UserRole.owner || role == UserRole.manager;
@@ -481,8 +481,8 @@ class AuthService {
 
     // Fast-path: current branch role already tells us
     final role = currentRole;
-    // Business owner read-only cannot manage users
-    if (role == UserRole.businessOwnerReadOnly) {
+    // Business owner read-only and owner read-only cannot manage users
+    if (role == UserRole.businessOwnerReadOnly || role == UserRole.ownerReadOnly) {
       return false;
     }
     if (role == UserRole.businessOwner || role == UserRole.owner) {
@@ -496,7 +496,7 @@ class AuthService {
 
     // Otherwise rely on the full branch assignments list
     return _branchUsers.any(
-      (bu) => bu.role == UserRole.businessOwner || bu.role == UserRole.owner,
+      (bu) => bu.role == UserRole.businessOwner || bu.role == UserRole.owner || bu.role == UserRole.ownerReadOnly,
     );
   }
 
@@ -505,6 +505,7 @@ class AuthService {
     if (_currentUser == null) return false;
     return _branchUsers.any((bu) => 
       bu.role == UserRole.owner || 
+      bu.role == UserRole.ownerReadOnly ||
       bu.role == UserRole.businessOwner || 
       bu.role == UserRole.businessOwnerReadOnly
     );
@@ -516,6 +517,7 @@ class AuthService {
     final ownerBranchIds = _branchUsers
         .where((bu) => 
           bu.role == UserRole.owner || 
+          bu.role == UserRole.ownerReadOnly ||
           bu.role == UserRole.businessOwner || 
           bu.role == UserRole.businessOwnerReadOnly
         )
@@ -540,13 +542,14 @@ class AuthService {
   bool canViewAllBranches() {
     return currentRole == UserRole.businessOwner || 
            currentRole == UserRole.businessOwnerReadOnly || 
-           currentRole == UserRole.owner;
+           currentRole == UserRole.owner ||
+           currentRole == UserRole.ownerReadOnly;
   }
 
   // Check if user is read-only (cannot edit or delete)
   bool isReadOnly() {
     final role = currentRole;
-    return role == UserRole.businessOwnerReadOnly;
+    return role == UserRole.businessOwnerReadOnly || role == UserRole.ownerReadOnly;
   }
 
   // Check if user is a business owner (including read-only) - for UI access purposes

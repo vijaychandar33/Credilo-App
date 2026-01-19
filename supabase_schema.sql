@@ -50,6 +50,24 @@ BEGIN
 END;
 $$;
 
+-- Helper function to get current user's email (for RLS policies)
+CREATE OR REPLACE FUNCTION get_current_user_email()
+RETURNS text
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_email text;
+BEGIN
+  SELECT email INTO v_email
+  FROM auth.users
+  WHERE id = auth.uid();
+  RETURN v_email;
+END;
+$$;
+
 -- Helper function to check if user has pending invitation
 CREATE OR REPLACE FUNCTION check_user_has_pending_invitation(p_business_id uuid)
 RETURNS boolean
@@ -60,9 +78,7 @@ DECLARE
   v_user_email text;
 BEGIN
   -- Get the authenticated user's email
-  SELECT email INTO v_user_email
-  FROM auth.users
-  WHERE id = auth.uid();
+  v_user_email := get_current_user_email();
   
   -- Check if there's a pending_users record for this email and business
   RETURN EXISTS (
@@ -97,7 +113,7 @@ CREATE TABLE branch_users (
   branch_id UUID REFERENCES branches(id) ON DELETE CASCADE,
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
   business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
-  role TEXT NOT NULL CHECK (role IN ('business_owner', 'business_owner_read_only', 'owner', 'manager', 'staff')),
+  role TEXT NOT NULL CHECK (role IN ('business_owner', 'business_owner_read_only', 'owner', 'owner_read_only', 'manager', 'staff')),
   permissions JSONB,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   UNIQUE(branch_id, user_id)
@@ -109,7 +125,7 @@ CREATE TABLE pending_users (
   email TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
   phone TEXT,
-  role TEXT NOT NULL CHECK (role IN ('business_owner', 'business_owner_read_only', 'owner', 'manager', 'staff')),
+  role TEXT NOT NULL CHECK (role IN ('business_owner', 'business_owner_read_only', 'owner', 'owner_read_only', 'manager', 'staff')),
   branch_id UUID REFERENCES branches(id) ON DELETE CASCADE,
   business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
   created_by UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -133,16 +149,13 @@ USING (
 );
 
 -- RLS Policy: Allow authenticated users to read their own pending invitation (by email)
+-- Uses get_current_user_email() function to avoid RLS issues with auth.users table
 CREATE POLICY "Users can read their own pending invitation"
 ON pending_users
 FOR SELECT
 USING (
   auth.uid() IS NOT NULL
-  AND EXISTS (
-    SELECT 1 FROM auth.users
-    WHERE auth.users.id = auth.uid()
-    AND auth.users.email = pending_users.email
-  )
+  AND pending_users.email = get_current_user_email()
 );
 
 -- RLS Policy: Allow business owners/managers to insert pending_users for their businesses
