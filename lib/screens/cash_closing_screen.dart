@@ -22,6 +22,7 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
   final TextEditingController totalExpensesController = TextEditingController();
   final TextEditingController countedCashController = TextEditingController();
   final TextEditingController withdrawnController = TextEditingController();
+  final TextEditingController withdrawnNotesController = TextEditingController();
   final DatabaseService _dbService = DatabaseService();
   final AuthService _authService = AuthService();
   bool _isLoading = false;
@@ -74,11 +75,14 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
       totalCashSalesController.text = _totalCashSales.toStringAsFixed(2);
       debugPrint('Total Cash Sales calculated: ($_countedCash - $_opening) + $_totalExpenses = $_totalCashSales');
 
-      // Load existing cash closing if available (for withdrawn)
+      // Load existing cash closing if available (for withdrawn and notes)
       final existingClosing = await _dbService.getCashClosing(widget.selectedDate, branch.id);
       if (existingClosing != null) {
         _withdrawn = existingClosing.withdrawn;
         withdrawnController.text = _withdrawn.toStringAsFixed(2);
+        if (existingClosing.withdrawnNotes != null && existingClosing.withdrawnNotes!.isNotEmpty) {
+          withdrawnNotesController.text = existingClosing.withdrawnNotes!;
+        }
       }
 
       _calculateNextOpening();
@@ -137,6 +141,9 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
         totalExpenses: _totalExpenses,
         countedCash: _countedCash,
         withdrawn: _withdrawn,
+        withdrawnNotes: withdrawnNotesController.text.trim().isEmpty 
+            ? null 
+            : withdrawnNotesController.text.trim(),
         adjustments: null,
         nextOpening: _getNextOpening(),
         discrepancy: _getDiscrepancy() == 0 ? null : _getDiscrepancy(),
@@ -257,6 +264,35 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
                 });
               },
               isEditable: true,
+            ),
+            const SizedBox(height: 16),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Notes (Optional)',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: withdrawnNotesController,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                        hintText: 'Add notes about withdrawal...',
+                      ),
+                      maxLines: 3,
+                      textCapitalization: TextCapitalization.sentences,
+                    ),
+                  ],
+                ),
+              ),
             ),
             const SizedBox(height: 24),
             Card(
@@ -381,6 +417,7 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
     totalExpensesController.dispose();
     countedCashController.dispose();
     withdrawnController.dispose();
+    withdrawnNotesController.dispose();
     super.dispose();
   }
 }

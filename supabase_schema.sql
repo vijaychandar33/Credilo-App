@@ -389,10 +389,12 @@ CREATE TABLE cash_closings (
   total_expenses NUMERIC(12,2) NOT NULL,
   counted_cash NUMERIC(12,2) NOT NULL,
   withdrawn NUMERIC(12,2) NOT NULL,
+  withdrawn_notes TEXT,
   adjustments NUMERIC(12,2),
   next_opening NUMERIC(12,2) NOT NULL,
   discrepancy NUMERIC(12,2),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  CONSTRAINT cash_closings_date_branch_unique UNIQUE (date, branch_id)
 );
 
 -- Create indexes for performance

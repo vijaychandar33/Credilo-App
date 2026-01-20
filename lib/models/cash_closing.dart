@@ -8,6 +8,7 @@ class CashClosing {
   final double totalExpenses;
   final double countedCash;
   final double withdrawn;
+  final String? withdrawnNotes;
   final double? adjustments;
   final double nextOpening;
   final double? discrepancy;
@@ -23,6 +24,7 @@ class CashClosing {
     required this.totalExpenses,
     required this.countedCash,
     required this.withdrawn,
+    this.withdrawnNotes,
     this.adjustments,
     required this.nextOpening,
     this.discrepancy,
@@ -40,6 +42,7 @@ class CashClosing {
       'total_expenses': totalExpenses,
       'counted_cash': countedCash,
       'withdrawn': withdrawn,
+      'withdrawn_notes': withdrawnNotes,
       'adjustments': adjustments,
       'next_opening': nextOpening,
       'discrepancy': discrepancy,
@@ -58,6 +61,7 @@ class CashClosing {
       totalExpenses: (json['total_expenses'] as num).toDouble(),
       countedCash: (json['counted_cash'] as num).toDouble(),
       withdrawn: (json['withdrawn'] as num).toDouble(),
+      withdrawnNotes: json['withdrawn_notes']?.toString(),
       adjustments: json['adjustments'] != null
           ? (json['adjustments'] as num).toDouble()
           : null,

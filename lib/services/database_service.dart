@@ -781,7 +781,69 @@ class DatabaseService {
 
   Future<void> saveCashClosing(CashClosing closing) async {
     try {
-      await _client.from('cash_closings').upsert(closing.toJson());
+      // First, fetch existing record to get its ID (if it exists)
+      // This ensures we update instead of creating duplicates
+      final existing = await getCashClosing(closing.date, closing.branchId);
+      
+      // Prepare the data with ID if it exists
+      final closingData = closing.toJson();
+      if (existing != null && existing.id != null) {
+        closingData['id'] = existing.id;
+      }
+      
+      // Upsert with conflict resolution on (date, branch_id)
+      await _client.from('cash_closings').upsert(
+        closingData,
+        onConflict: 'date,branch_id',
+      );
+      
+      // Update next day's opening balance and recalculate its values if it exists
+      final nextDate = closing.date.add(const Duration(days: 1));
+      final nextDayClosing = await getCashClosing(nextDate, closing.branchId);
+      
+      if (nextDayClosing != null) {
+        // Fetch next day's actual data to recalculate
+        final nextDayExpenses = await getCashExpenses(nextDate, closing.branchId);
+        final nextDayTotalExpenses = nextDayExpenses.fold(0.0, (sum, e) => sum + e.amount);
+        
+        final nextDayCashCounts = await getCashCounts(nextDate, closing.branchId);
+        final nextDayCountedCash = nextDayCashCounts.fold(0.0, (sum, count) => sum + count.total);
+        
+        // Recalculate total cash sales with new opening balance
+        final newOpening = closing.nextOpening;
+        final newTotalCashSales = (nextDayCountedCash - newOpening) + nextDayTotalExpenses;
+        
+        // Recalculate next opening for the next day
+        final newNextOpening = newOpening + newTotalCashSales - nextDayTotalExpenses - nextDayClosing.withdrawn;
+        
+        // Calculate discrepancy
+        final expectedCash = newOpening + newTotalCashSales - nextDayTotalExpenses;
+        final discrepancy = nextDayCountedCash - expectedCash;
+        
+        // Prepare update data with ID to ensure we update the correct record
+        final Map<String, dynamic> updateData = <String, dynamic>{
+          'date': nextDate.toIso8601String().split('T')[0],
+          'branch_id': closing.branchId,
+          'user_id': closing.userId,
+          'opening': newOpening,
+          'total_cash_sales': newTotalCashSales,
+          'total_expenses': nextDayTotalExpenses,
+          'counted_cash': nextDayCountedCash,
+          'withdrawn': nextDayClosing.withdrawn,
+          if (nextDayClosing.withdrawnNotes != null) 'withdrawn_notes': nextDayClosing.withdrawnNotes,
+          'next_opening': newNextOpening,
+          if (discrepancy != 0) 'discrepancy': discrepancy,
+          if (nextDayClosing.id != null) 'id': nextDayClosing.id!,
+        };
+        
+        // Update the next day's cash closing with recalculated values
+        await _client
+            .from('cash_closings')
+            .upsert(
+              updateData,
+              onConflict: 'date,branch_id',
+            );
+      }
     } catch (e) {
       debugPrint('Error saving cash closing: $e');
       rethrow;
