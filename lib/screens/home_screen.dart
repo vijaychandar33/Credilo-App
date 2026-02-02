@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../widgets/date_selector.dart';
 import '../services/auth_service.dart';
+import '../services/database_service.dart';
 import '../models/branch.dart';
 import '../utils/closing_cycle_service.dart';
 import 'cash_expense_screen.dart';
@@ -13,6 +14,7 @@ import 'online_sales_screen.dart';
 import 'qr_payment_screen.dart';
 import 'due_screen.dart';
 import 'cash_closing_screen.dart';
+import 'safe_management_screen.dart';
 import 'settings_screen.dart';
 import '../utils/app_colors.dart';
 
@@ -25,11 +27,14 @@ class FinancialEntryScreen extends StatefulWidget {
 }
 
 class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
-  late DateTime _selectedDate;
+  DateTime _selectedDate = DateTime.now();
   final AuthService _authService = AuthService();
+  final DatabaseService _dbService = DatabaseService();
   bool _canEdit = false;
   bool _canView = false;
   bool _isLoadingPermissions = true;
+  /// Whether each section has saved data for the selected date (visual indicator).
+  Map<String, bool> _sectionHasData = {};
 
   @override
   void initState() {
@@ -45,6 +50,7 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
         _selectedDate = businessDate;
       });
       await _loadPermissions();
+      await _loadSectionData();
     }
   }
 
@@ -75,7 +81,49 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
       _selectedDate = date;
       _isLoadingPermissions = true;
     });
-    _loadPermissions();
+    _loadPermissions().then((_) => _loadSectionData());
+  }
+
+  /// Loads whether each section has saved data for the selected date.
+  Future<void> _loadSectionData() async {
+    final branch = _authService.currentBranch;
+    if (branch == null) return;
+    final date = _selectedDate;
+    final dayStart = DateTime(date.year, date.month, date.day);
+    final dayEnd = DateTime(date.year, date.month, date.day, 23, 59, 59, 999);
+
+    try {
+      final results = await Future.wait([
+        _dbService.getCreditExpenses(date, branch.id),
+        _dbService.getCashExpenses(date, branch.id),
+        _dbService.getOnlineExpenses(date, branch.id),
+        _dbService.getCashCounts(date, branch.id),
+        _dbService.getCardSales(date, branch.id),
+        _dbService.getOnlineSales(date, branch.id),
+        _dbService.getQrPayments(date, branch.id),
+        _dbService.getDues(date, branch.id),
+        _dbService.getCashClosing(date, branch.id),
+        _dbService.getSafeTransactions(branch.id, startDate: dayStart, endDate: dayEnd),
+      ]);
+
+      if (!mounted) return;
+      setState(() {
+        _sectionHasData = {
+          'Credit Expense': (results[0] as List).isNotEmpty,
+          'Cash Daily Expense': (results[1] as List).isNotEmpty,
+          'Online Daily Expense': (results[2] as List).isNotEmpty,
+          'Cash Balance': (results[3] as List).isNotEmpty,
+          'Card': (results[4] as List).isNotEmpty,
+          'Online Sales': (results[5] as List).isNotEmpty,
+          'UPI': (results[6] as List).isNotEmpty,
+          'Due': (results[7] as List).isNotEmpty,
+          'Cash Closing': results[8] != null,
+          'Safe Management': (results[9] as List).isNotEmpty,
+        };
+      });
+    } catch (e) {
+      debugPrint('Error loading section data: $e');
+    }
   }
 
   @override
@@ -145,18 +193,22 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                     context,
                     'Credit Expense',
                     Icons.credit_card,
-                    AppColors.warning,
+                    AppColors.primary,
                     canEdit
-                        ? () => Navigator.push(
+                        ? () async {
+                            await Navigator.push(
                               context,
                               MaterialPageRoute(
                                 builder: (context) => CreditExpenseScreen(
                                   selectedDate: _selectedDate,
                                 ),
                               ),
-                            )
+                            );
+                            if (mounted) _loadSectionData();
+                          }
                         : null,
                     disabled: !canEdit,
+                    hasData: _sectionHasData['Credit Expense'] ?? false,
                   ),
                   const SizedBox(height: 12),
                   _buildQuickActionButton(
@@ -165,16 +217,20 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                     Icons.receipt_long,
                     AppColors.primary,
                     canEdit
-                        ? () => Navigator.push(
+                        ? () async {
+                            await Navigator.push(
                               context,
                               MaterialPageRoute(
                                 builder: (context) => CashExpenseScreen(
                                   selectedDate: _selectedDate,
                                 ),
                               ),
-                            )
+                            );
+                            if (mounted) _loadSectionData();
+                          }
                         : null,
                     disabled: !canEdit,
+                    hasData: _sectionHasData['Cash Daily Expense'] ?? false,
                   ),
                   const SizedBox(height: 12),
                   _buildQuickActionButton(
@@ -183,34 +239,42 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                     Icons.account_balance,
                     AppColors.primary,
                     canEdit
-                        ? () => Navigator.push(
+                        ? () async {
+                            await Navigator.push(
                               context,
                               MaterialPageRoute(
                                 builder: (context) => OnlineExpenseScreen(
                                   selectedDate: _selectedDate,
                                 ),
                               ),
-                            )
+                            );
+                            if (mounted) _loadSectionData();
+                          }
                         : null,
                     disabled: !canEdit,
+                    hasData: _sectionHasData['Online Daily Expense'] ?? false,
                   ),
                   const SizedBox(height: 12),
                   _buildQuickActionButton(
                     context,
                     'Cash Balance',
                     Icons.account_balance_wallet,
-                    AppColors.success,
+                    AppColors.warning,
                     canEdit
-                        ? () => Navigator.push(
+                        ? () async {
+                            await Navigator.push(
                               context,
                               MaterialPageRoute(
                                 builder: (context) => CashBalanceScreen(
                                   selectedDate: _selectedDate,
                                 ),
                               ),
-                            )
+                            );
+                            if (mounted) _loadSectionData();
+                          }
                         : null,
                     disabled: !canEdit,
+                    hasData: _sectionHasData['Cash Balance'] ?? false,
                   ),
                   const SizedBox(height: 12),
                   _buildQuickActionButton(
@@ -219,52 +283,64 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                     Icons.credit_card,
                     AppColors.warning,
                     canEdit
-                        ? () => Navigator.push(
+                        ? () async {
+                            await Navigator.push(
                               context,
                               MaterialPageRoute(
                                 builder: (context) => CardScreen(
                                   selectedDate: _selectedDate,
                                 ),
                               ),
-                            )
+                            );
+                            if (mounted) _loadSectionData();
+                          }
                         : null,
                     disabled: !canEdit,
+                    hasData: _sectionHasData['Card'] ?? false,
                   ),
                   const SizedBox(height: 12),
                   _buildQuickActionButton(
                     context,
                     'Online Sales',
                     Icons.shopping_cart,
-                    AppColors.primary,
+                    AppColors.warning,
                     canEdit
-                        ? () => Navigator.push(
+                        ? () async {
+                            await Navigator.push(
                               context,
                               MaterialPageRoute(
                                 builder: (context) => OnlineSalesScreen(
                                   selectedDate: _selectedDate,
                                 ),
                               ),
-                            )
+                            );
+                            if (mounted) _loadSectionData();
+                          }
                         : null,
                     disabled: !canEdit,
+                    hasData: _sectionHasData['Online Sales'] ?? false,
                   ),
                   const SizedBox(height: 12),
                   _buildQuickActionButton(
                     context,
                     'UPI',
                     Icons.qr_code,
-                    AppColors.primaryLight,
+                    AppColors.warning,
                     canEdit
-                        ? () => Navigator.push(
+                        ? () async {
+                            await Navigator.push(
                               context,
                               MaterialPageRoute(
                                 builder: (context) => QrPaymentScreen(
                                   selectedDate: _selectedDate,
                                 ),
                               ),
-                            )
+                            );
+                            if (mounted) _loadSectionData();
+                          }
                         : null,
                     disabled: !canEdit,
+                    hasData: _sectionHasData['UPI'] ?? false,
                   ),
                   const SizedBox(height: 12),
                   _buildQuickActionButton(
@@ -273,34 +349,62 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                     Icons.pending_actions,
                     AppColors.error,
                     canEdit
-                        ? () => Navigator.push(
+                        ? () async {
+                            await Navigator.push(
                               context,
                               MaterialPageRoute(
                                 builder: (context) => DueScreen(
                                   selectedDate: _selectedDate,
                                 ),
                               ),
-                            )
+                            );
+                            if (mounted) _loadSectionData();
+                          }
                         : null,
                     disabled: !canEdit,
+                    hasData: _sectionHasData['Due'] ?? false,
                   ),
                   const SizedBox(height: 12),
                   _buildQuickActionButton(
                     context,
                     'Cash Closing',
                     Icons.lock_clock,
-                    Colors.indigo,
+                    AppColors.success,
                     canEdit
-                        ? () => Navigator.push(
+                        ? () async {
+                            await Navigator.push(
                               context,
                               MaterialPageRoute(
                                 builder: (context) => CashClosingScreen(
                                   selectedDate: _selectedDate,
                                 ),
                               ),
-                            )
+                            );
+                            if (mounted) _loadSectionData();
+                          }
                         : null,
                     disabled: !canEdit,
+                    hasData: _sectionHasData['Cash Closing'] ?? false,
+                  ),
+                  const SizedBox(height: 12),
+                  _buildQuickActionButton(
+                    context,
+                    'Safe Management',
+                    Icons.lock,
+                    AppColors.success,
+                    () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => SafeManagementScreen(
+                            selectedDate: _selectedDate,
+                          ),
+                        ),
+                      );
+                      if (mounted) _loadSectionData();
+                    },
+                    disabled: false,
+                    hasData: _sectionHasData['Safe Management'] ?? false,
                   ),
                 ],
               ),
@@ -319,6 +423,7 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
     Color color,
     VoidCallback? onTap, {
     bool disabled = false,
+    bool hasData = false,
   }) {
     return Card(
       elevation: 2,
@@ -359,6 +464,10 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                   ),
                 ),
               ),
+              if (hasData) ...[
+                Icon(Icons.check_circle, color: AppColors.success, size: 22),
+                const SizedBox(width: 8),
+              ],
               Icon(Icons.chevron_right, color: color),
             ],
           ),

@@ -10,6 +10,7 @@ import '../utils/date_range_utils.dart';
 import '../utils/closing_cycle_service.dart';
 import 'owner_dashboard_detail_screen.dart';
 import 'owner_dashboard_aggregated_detail_screen.dart';
+import 'owner_dashboard_dues_detail_screen.dart';
 
 class OwnerDashboardScreen extends StatefulWidget {
   const OwnerDashboardScreen({super.key});
@@ -633,8 +634,8 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                     )
                   else
                     ...receivables.map((due) => _buildDueRow(
-                      due.party,
-                      CurrencyFormatter.format(due.amount, decimalDigits: 0),
+                      due,
+                      () => _navigateToDuesDetail(DueType.receivable, 'Receivables'),
                     )),
                 ],
               ),
@@ -662,8 +663,8 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                     )
                   else
                     ...payables.map((due) => _buildDueRow(
-                      due.party,
-                      CurrencyFormatter.format(due.amount, decimalDigits: 0),
+                      due,
+                      () => _navigateToDuesDetail(DueType.payable, 'Payables'),
                     )),
                 ],
               ),
@@ -933,15 +934,49 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
     );
   }
 
-  Widget _buildDueRow(String party, String amount) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(child: Text(party)),
-          Text(amount, style: const TextStyle(fontWeight: FontWeight.w600)),
-        ],
+  Future<void> _navigateToDuesDetail(DueType dueType, String title) async {
+    final branches = _getSelectedBranches();
+    final dateRange = await _getDateRange();
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => OwnerDashboardDuesDetailScreen(
+          dueType: dueType,
+          title: title,
+          selectedBranches: branches,
+          dateRange: dateRange,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDueRow(Due due, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Text(
+                due.party,
+                style: const TextStyle(fontSize: 16),
+              ),
+            ),
+            Text(
+              CurrencyFormatter.format(due.amount, decimalDigits: 0),
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(Icons.chevron_right, size: 20, color: AppColors.textTertiary),
+          ],
+        ),
       ),
     );
   }

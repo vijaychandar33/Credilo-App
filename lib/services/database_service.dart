@@ -10,6 +10,7 @@ import '../models/cash_closing.dart';
 import '../models/branch.dart';
 import '../models/credit_expense.dart';
 import '../models/supplier.dart';
+import '../models/safe_transaction.dart';
 import '../utils/closing_cycle_service.dart';
 import 'package:flutter/foundation.dart';
 
@@ -761,6 +762,18 @@ class DatabaseService {
     }
   }
 
+  Future<void> updateDueStatus(String dueId, bool isReceived) async {
+    try {
+      await _client
+          .from('dues')
+          .update({'status': isReceived ? 'received' : 'not_received'})
+          .eq('id', dueId);
+    } catch (e) {
+      debugPrint('Error updating due status: $e');
+      rethrow;
+    }
+  }
+
   // Cash Closings
   Future<CashClosing?> getCashClosing(DateTime date, String branchId) async {
     try {
@@ -787,15 +800,77 @@ class DatabaseService {
       
       // Prepare the data with ID if it exists
       final closingData = closing.toJson();
+      String? closingId;
       if (existing != null && existing.id != null) {
         closingData['id'] = existing.id;
+        closingId = existing.id;
       }
       
       // Upsert with conflict resolution on (date, branch_id)
-      await _client.from('cash_closings').upsert(
+      final upsertResult = await _client.from('cash_closings').upsert(
         closingData,
         onConflict: 'date,branch_id',
-      );
+      ).select();
+      
+      // Get the ID of the saved cash closing
+      if (upsertResult.isNotEmpty) {
+        closingId = upsertResult[0]['id']?.toString();
+      }
+      
+      // Handle safe transaction for withdrawn amount
+      if (closingId != null) {
+        // Check if there's an existing transaction for this cash closing
+        final existingTransactions = await _client
+            .from('safe_transactions')
+            .select()
+            .eq('cash_closing_id', closingId);
+        
+        final existingTransactionList = existingTransactions as List;
+        
+        if (closing.withdrawn > 0) {
+          // Create or update safe transaction
+          if (existingTransactionList.isNotEmpty) {
+            // Update existing transaction
+            final existingTransaction = existingTransactionList.first;
+            final oldAmount = (existingTransaction['amount'] as num).toDouble();
+            
+            final existingNote = existingTransaction['note']?.toString();
+            final newNote = closing.withdrawnNotes;
+
+            // Update in-place (DB trigger handles balance adjustment on UPDATE)
+            if (oldAmount != closing.withdrawn || existingNote != newNote) {
+              await _client.from('safe_transactions').update({
+                'amount': closing.withdrawn,
+                'note': newNote,
+                'date': closing.date.toIso8601String().split('T')[0],
+                'user_id': closing.userId,
+                'type': 'deposit',
+              }).eq('cash_closing_id', closingId);
+            }
+          } else {
+            // Create new transaction
+            await saveSafeTransaction(SafeTransaction(
+              date: closing.date,
+              userId: closing.userId,
+              branchId: closing.branchId,
+              type: SafeTransactionType.deposit,
+              amount: closing.withdrawn,
+              note: closing.withdrawnNotes,
+              cashClosingId: closingId,
+            ));
+          }
+        } else if (existingTransactionList.isNotEmpty) {
+          // Withdrawn is now 0: keep the record but zero it out (avoids needing DELETE rights)
+          // DB trigger handles balance adjustment on UPDATE.
+          await _client.from('safe_transactions').update({
+            'amount': 0,
+            'note': closing.withdrawnNotes,
+            'date': closing.date.toIso8601String().split('T')[0],
+            'user_id': closing.userId,
+            'type': 'deposit',
+          }).eq('cash_closing_id', closingId);
+        }
+      }
       
       // Update next day's opening balance and recalculate its values if it exists
       final nextDate = closing.date.add(const Duration(days: 1));
@@ -894,6 +969,102 @@ class DatabaseService {
       debugPrint('Error checking for after-midnight data: $e');
       // If there's an error, be conservative and return true to prevent disabling
       return true;
+    }
+  }
+
+  // Safe Management
+  Future<double> getSafeBalance(String branchId) async {
+    try {
+      final response = await _client
+          .from('safe_balances')
+          .select()
+          .eq('branch_id', branchId)
+          .maybeSingle();
+
+      if (response == null) return 0.0;
+      return (response['balance'] as num).toDouble();
+    } catch (e) {
+      debugPrint('Error fetching safe balance: $e');
+      return 0.0;
+    }
+  }
+
+  // Get safe balance as of a specific date (sum all transactions up to and including that date)
+  Future<double> getSafeBalanceAsOfDate(String branchId, DateTime asOfDate) async {
+    try {
+      final dateStr = asOfDate.toIso8601String().split('T')[0];
+      
+      final response = await _client
+          .from('safe_transactions')
+          .select()
+          .eq('branch_id', branchId)
+          .lte('date', dateStr);
+
+      double balance = 0.0;
+      for (var transaction in response) {
+        final type = transaction['type'] as String;
+        final amount = (transaction['amount'] as num).toDouble();
+        
+        if (type == 'deposit') {
+          balance += amount;
+        } else if (type == 'withdrawal') {
+          balance -= amount;
+        }
+      }
+
+      return balance;
+    } catch (e) {
+      debugPrint('Error fetching safe balance as of date: $e');
+      return 0.0;
+    }
+  }
+
+  Future<List<SafeTransaction>> getSafeTransactions(
+    String branchId, {
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    try {
+      var query = _client
+          .from('safe_transactions')
+          .select()
+          .eq('branch_id', branchId);
+
+      if (startDate != null) {
+        query = query.gte('date', startDate.toIso8601String().split('T')[0]);
+      }
+      if (endDate != null) {
+        query = query.lte('date', endDate.toIso8601String().split('T')[0]);
+      }
+
+      final response = await query.order('created_at', ascending: false);
+
+      return (response as List)
+          .map((json) => SafeTransaction.fromJson(json))
+          .toList();
+    } catch (e) {
+      debugPrint('Error fetching safe transactions: $e');
+      return [];
+    }
+  }
+
+  Future<void> saveSafeTransaction(SafeTransaction transaction) async {
+    try {
+      await _client.from('safe_transactions').insert(transaction.toJson());
+      // Balance is automatically updated by trigger
+    } catch (e) {
+      debugPrint('Error saving safe transaction: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> deleteSafeTransaction(String id) async {
+    try {
+      await _client.from('safe_transactions').delete().eq('id', id);
+      // Balance is automatically updated by trigger
+    } catch (e) {
+      debugPrint('Error deleting safe transaction: $e');
+      rethrow;
     }
   }
 

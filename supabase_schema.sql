@@ -374,6 +374,7 @@ CREATE TABLE dues (
   party TEXT NOT NULL,
   amount NUMERIC(12,2) NOT NULL,
   type TEXT NOT NULL CHECK (type IN ('receivable', 'payable')),
+  status TEXT DEFAULT 'not_received' CHECK (status IN ('received', 'not_received')),
   remarks TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -397,6 +398,160 @@ CREATE TABLE cash_closings (
   CONSTRAINT cash_closings_date_branch_unique UNIQUE (date, branch_id)
 );
 
+-- Safe balances (current balance per branch)
+CREATE TABLE safe_balances (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  branch_id UUID REFERENCES branches(id) ON DELETE CASCADE UNIQUE,
+  balance NUMERIC(12,2) NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Safe transactions (all deposits and withdrawals)
+CREATE TABLE safe_transactions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  date DATE NOT NULL,
+  user_id UUID REFERENCES users(id),
+  branch_id UUID REFERENCES branches(id) ON DELETE CASCADE,
+  type TEXT NOT NULL CHECK (type IN ('deposit', 'withdrawal')),
+  amount NUMERIC(12,2) NOT NULL,
+  note TEXT,
+  cash_closing_id UUID REFERENCES cash_closings(id) ON DELETE SET NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Enable Row Level Security on safe_balances
+ALTER TABLE safe_balances ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policy: Users can read safe_balances for branches they have access to
+CREATE POLICY "Users can read safe_balances for their branches"
+ON safe_balances
+FOR SELECT
+USING (
+  EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE branch_users.branch_id = safe_balances.branch_id
+    AND branch_users.user_id = auth.uid()
+  )
+);
+
+-- RLS Policy: Users can update safe_balances for branches they have access to
+CREATE POLICY "Users can update safe_balances for their branches"
+ON safe_balances
+FOR UPDATE
+USING (
+  EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE branch_users.branch_id = safe_balances.branch_id
+    AND branch_users.user_id = auth.uid()
+  )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE branch_users.branch_id = safe_balances.branch_id
+    AND branch_users.user_id = auth.uid()
+  )
+);
+
+-- RLS Policy: Users can insert safe_balances for branches they have access to
+CREATE POLICY "Users can insert safe_balances for their branches"
+ON safe_balances
+FOR INSERT
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE branch_users.branch_id = safe_balances.branch_id
+    AND branch_users.user_id = auth.uid()
+  )
+);
+
+-- Enable Row Level Security on safe_transactions
+ALTER TABLE safe_transactions ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policy: Users can read safe_transactions for branches they have access to
+CREATE POLICY "Users can read safe_transactions for their branches"
+ON safe_transactions
+FOR SELECT
+USING (
+  EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE branch_users.branch_id = safe_transactions.branch_id
+    AND branch_users.user_id = auth.uid()
+  )
+);
+
+-- RLS Policy: Users can insert safe_transactions for branches they have access to
+CREATE POLICY "Users can insert safe_transactions for their branches"
+ON safe_transactions
+FOR INSERT
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE branch_users.branch_id = safe_transactions.branch_id
+    AND branch_users.user_id = auth.uid()
+  )
+);
+
+-- RLS Policy: Only owners/managers can delete safe_transactions
+CREATE POLICY "Owners can delete safe_transactions"
+ON safe_transactions
+FOR DELETE
+USING (
+  EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE branch_users.branch_id = safe_transactions.branch_id
+    AND branch_users.user_id = auth.uid()
+    AND branch_users.role IN ('business_owner', 'owner', 'manager')
+  )
+);
+
+-- Function to update safe balance when a transaction is created
+CREATE OR REPLACE FUNCTION update_safe_balance()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    -- Insert or update safe balance
+    INSERT INTO safe_balances (branch_id, balance, updated_at)
+    VALUES (
+      NEW.branch_id,
+      CASE 
+        WHEN NEW.type = 'deposit' THEN NEW.amount
+        ELSE -NEW.amount
+      END,
+      NOW()
+    )
+    ON CONFLICT (branch_id) DO UPDATE
+    SET balance = safe_balances.balance + 
+        CASE 
+          WHEN NEW.type = 'deposit' THEN NEW.amount
+          ELSE -NEW.amount
+        END,
+        updated_at = NOW();
+  ELSIF TG_OP = 'DELETE' THEN
+    -- Reverse the transaction effect
+    UPDATE safe_balances
+    SET balance = balance - 
+        CASE 
+          WHEN OLD.type = 'deposit' THEN OLD.amount
+          ELSE -OLD.amount
+        END,
+        updated_at = NOW()
+    WHERE branch_id = OLD.branch_id;
+  END IF;
+  
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+-- Trigger to automatically update safe balance
+CREATE TRIGGER safe_balance_update_trigger
+AFTER INSERT OR DELETE ON safe_transactions
+FOR EACH ROW
+EXECUTE FUNCTION update_safe_balance();
+
 -- Create indexes for performance
 CREATE INDEX idx_cash_expenses_date ON cash_expenses(date);
 CREATE INDEX idx_cash_expenses_branch ON cash_expenses(branch_id);
@@ -417,6 +572,10 @@ CREATE INDEX idx_dues_date ON dues(date);
 CREATE INDEX idx_dues_branch ON dues(branch_id);
 CREATE INDEX idx_cash_closings_date ON cash_closings(date);
 CREATE INDEX idx_cash_closings_branch ON cash_closings(branch_id);
+CREATE INDEX idx_safe_balances_branch ON safe_balances(branch_id);
+CREATE INDEX idx_safe_transactions_date ON safe_transactions(date);
+CREATE INDEX idx_safe_transactions_branch ON safe_transactions(branch_id);
+CREATE INDEX idx_safe_transactions_type ON safe_transactions(type);
 CREATE INDEX idx_suppliers_business ON suppliers(business_id);
 CREATE INDEX idx_branch_users_business ON branch_users(business_id);
 CREATE INDEX idx_pending_users_email ON pending_users(email);
