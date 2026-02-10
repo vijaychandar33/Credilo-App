@@ -3,6 +3,7 @@ class CardSale {
   final DateTime date;
   final String userId;
   final String branchId;
+  final String? cardMachineId; // UUID; rename-safe link to card_machines
   final String tid;
   final String machineName;
   final double amount;
@@ -14,6 +15,7 @@ class CardSale {
     required this.date,
     required this.userId,
     required this.branchId,
+    this.cardMachineId,
     required this.tid,
     required this.machineName,
     required this.amount,
@@ -27,6 +29,7 @@ class CardSale {
       'date': date.toIso8601String().split('T')[0],
       'user_id': userId,
       'branch_id': branchId,
+      if (cardMachineId != null) 'card_machine_id': cardMachineId,
       'tid': tid,
       'machine_name': machineName,
       'amount': amount,
@@ -41,6 +44,7 @@ class CardSale {
       date: DateTime.parse(json['date']),
       userId: json['user_id']?.toString() ?? '',
       branchId: json['branch_id']?.toString() ?? '',
+      cardMachineId: json['card_machine_id']?.toString(),
       tid: json['tid'] ?? '',
       machineName: json['machine_name'] ?? '',
       amount: (json['amount'] as num).toDouble(),

@@ -3,6 +3,7 @@ class OnlineSale {
   final DateTime date;
   final String userId;
   final String branchId;
+  final String? platformId; // UUID; rename-safe link to online_sales_platforms
   final String platform;
   final double gross;
   final double? commission;
@@ -15,6 +16,7 @@ class OnlineSale {
     required this.date,
     required this.userId,
     required this.branchId,
+    this.platformId,
     required this.platform,
     required this.gross,
     this.commission,
@@ -29,6 +31,7 @@ class OnlineSale {
       'date': date.toIso8601String().split('T')[0],
       'user_id': userId,
       'branch_id': branchId,
+      if (platformId != null) 'platform_id': platformId,
       'platform': platform,
       'gross': gross,
       'commission': commission,
@@ -44,6 +47,7 @@ class OnlineSale {
       date: DateTime.parse(json['date']),
       userId: json['user_id']?.toString() ?? '',
       branchId: json['branch_id']?.toString() ?? '',
+      platformId: json['platform_id']?.toString(),
       platform: json['platform'] ?? '',
       gross: (json['gross'] as num).toDouble(),
       commission: json['commission'] != null

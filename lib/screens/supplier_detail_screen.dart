@@ -80,14 +80,23 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
         statuses = widget.selectedStatuses!.toList();
       }
 
-      final expenses = await _dbService.getCreditExpensesBySupplier(
-        widget.supplier.name,
-        branch.businessId,
-        branchIds: branchIds,
-        startDate: startDate,
-        endDate: endDate,
-        statuses: statuses,
-      );
+      final expenses = widget.supplier.id != null
+          ? await _dbService.getCreditExpensesBySupplierId(
+              widget.supplier.id!,
+              branch.businessId,
+              branchIds: branchIds,
+              startDate: startDate,
+              endDate: endDate,
+              statuses: statuses,
+            )
+          : await _dbService.getCreditExpensesBySupplier(
+              widget.supplier.name,
+              branch.businessId,
+              branchIds: branchIds,
+              startDate: startDate,
+              endDate: endDate,
+              statuses: statuses,
+            );
       setState(() {
         _expenses = expenses;
         _selectedIds.clear();
@@ -352,10 +361,9 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
     final branch = _authService.currentBranch;
     if (branch == null) return;
 
-    final hasExpenses = await _dbService.hasCreditExpenses(
-      widget.supplier.name,
-      branch.businessId,
-    );
+    final hasExpenses = widget.supplier.id != null
+        ? await _dbService.hasCreditExpensesBySupplierId(widget.supplier.id!)
+        : await _dbService.hasCreditExpenses(widget.supplier.name, branch.businessId);
 
     if (hasExpenses) {
       if (mounted) {

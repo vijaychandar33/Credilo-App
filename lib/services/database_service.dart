@@ -160,6 +160,123 @@ class DatabaseService {
     }
   }
 
+  /// Fetches credit expenses by supplier UUID (rename-safe). Use this for supplier detail.
+  Future<List<CreditExpense>> getCreditExpensesBySupplierId(
+    String supplierId,
+    String businessId, {
+    List<String>? branchIds,
+    DateTime? startDate,
+    DateTime? endDate,
+    List<CreditExpenseStatus>? statuses,
+  }) async {
+    String formatDate(DateTime date) {
+      final onlyDate = DateTime(date.year, date.month, date.day);
+      return onlyDate.toIso8601String().split('T').first;
+    }
+
+    String buildInClause(List<String> values) {
+      final sanitized = values.map((value) => '"$value"').join(',');
+      return '($sanitized)';
+    }
+
+    List<String> statusFilters = [];
+    if (statuses != null && statuses.isNotEmpty) {
+      statusFilters = statuses
+          .map((status) => status == CreditExpenseStatus.paid ? 'paid' : 'unpaid')
+          .toSet()
+          .toList();
+    }
+
+    Future<List<String>> resolveBranchIds() async {
+      if (branchIds != null && branchIds.isNotEmpty) {
+        return branchIds;
+      }
+      return _fetchBranchIdsForBusiness(businessId);
+    }
+
+    try {
+      final effectiveBranchIds = await resolveBranchIds();
+      if (effectiveBranchIds.isEmpty) {
+        return [];
+      }
+
+      var query = _client
+          .from('credit_expenses')
+          .select('''
+            *,
+            branches!credit_expenses_branch_id_fkey (
+              id,
+              name,
+              location
+            )
+          ''')
+          .eq('supplier_id', supplierId);
+
+      if (effectiveBranchIds.length == 1) {
+        query = query.eq('branch_id', effectiveBranchIds.first);
+      } else {
+        query = query.filter('branch_id', 'in', buildInClause(effectiveBranchIds));
+      }
+
+      if (startDate != null) {
+        query = query.gte('date', formatDate(startDate));
+      }
+      if (endDate != null) {
+        query = query.lte('date', formatDate(endDate));
+      }
+      if (statusFilters.isNotEmpty) {
+        if (statusFilters.length == 1) {
+          query = query.eq('status', statusFilters.first);
+        } else {
+          query = query.filter('status', 'in', buildInClause(statusFilters));
+        }
+      }
+
+      final response = await query.order('date', ascending: false);
+
+      return (response as List)
+          .map((json) => CreditExpense.fromJson(json))
+          .toList();
+    } catch (e) {
+      debugPrint('Error fetching credit expenses by supplier id: $e');
+      try {
+        final effectiveBranchIds = await resolveBranchIds();
+        if (effectiveBranchIds.isEmpty) {
+          return [];
+        }
+        var simpleQuery = _client
+            .from('credit_expenses')
+            .select()
+            .eq('supplier_id', supplierId);
+        if (effectiveBranchIds.length == 1) {
+          simpleQuery = simpleQuery.eq('branch_id', effectiveBranchIds.first);
+        } else {
+          simpleQuery = simpleQuery.filter('branch_id', 'in', buildInClause(effectiveBranchIds));
+        }
+        if (startDate != null) {
+          simpleQuery = simpleQuery.gte('date', formatDate(startDate));
+        }
+        if (endDate != null) {
+          simpleQuery = simpleQuery.lte('date', formatDate(endDate));
+        }
+        if (statusFilters.isNotEmpty) {
+          if (statusFilters.length == 1) {
+            simpleQuery = simpleQuery.eq('status', statusFilters.first);
+          } else {
+            simpleQuery = simpleQuery.filter('status', 'in', buildInClause(statusFilters));
+          }
+        }
+        final simpleResponse = await simpleQuery.order('date', ascending: false);
+        return (simpleResponse as List)
+            .map((json) => CreditExpense.fromJson(json))
+            .toList();
+      } catch (e2) {
+        debugPrint('Error in fallback query: $e2');
+        return [];
+      }
+    }
+  }
+
   Future<List<CreditExpense>> getCreditExpensesBySupplier(
     String supplierName,
     String businessId, {
@@ -382,38 +499,47 @@ class DatabaseService {
     }
   }
 
+  /// Checks if any credit expenses exist for this supplier (by UUID). Use for delete guard.
+  Future<bool> hasCreditExpensesBySupplierId(String supplierId) async {
+    try {
+      final response = await _client
+          .from('credit_expenses')
+          .select('id')
+          .eq('supplier_id', supplierId)
+          .limit(1);
+      return (response as List).isNotEmpty;
+    } catch (e) {
+      debugPrint('Error checking credit expenses by supplier id: $e');
+      return true; // Return true to be safe (prevent deletion if check fails)
+    }
+  }
+
   Future<bool> hasCreditExpenses(String supplierName, String businessId) async {
     try {
-      // Get all branch IDs for this business
       final branchesResponse = await _client
           .from('branches')
           .select('id')
           .eq('business_id', businessId);
-      
       final branchIds = (branchesResponse as List)
           .map((b) => b['id'] as String)
           .toList();
-      
       if (branchIds.isEmpty) {
         return false;
       }
-
       var query = _client
           .from('credit_expenses')
           .select('id')
           .eq('supplier', supplierName);
-      
       if (branchIds.length == 1) {
         query = query.eq('branch_id', branchIds[0]);
       } else if (branchIds.length > 1) {
         query = query.or(branchIds.map((id) => 'branch_id.eq.$id').join(','));
       }
-      
       final response = await query.limit(1);
       return (response as List).isNotEmpty;
     } catch (e) {
       debugPrint('Error checking credit expenses: $e');
-      return true; // Return true to be safe (prevent deletion if check fails)
+      return true;
     }
   }
 
@@ -537,17 +663,20 @@ class DatabaseService {
     }
   }
 
-  /// Returns TID values (for the given branch) that have at least one card_sale. Used to disable delete for machines with transactions.
-  Future<Set<String>> getTidsWithCardSales(String branchId) async {
+  /// Card machine IDs (for this branch) that have at least one card_sale. Used to disable delete.
+  Future<Set<String>> getCardMachineIdsWithCardSales(String branchId) async {
     try {
       final response = await _client
           .from('card_sales')
-          .select('tid')
-          .eq('branch_id', branchId);
-      final list = (response as List).map((r) => r['tid'] as String?).whereType<String>().toList();
-      return list.toSet();
+          .select('card_machine_id')
+          .eq('branch_id', branchId)
+          .not('card_machine_id', 'is', null);
+      return (response as List)
+          .map((r) => r['card_machine_id'] as String?)
+          .whereType<String>()
+          .toSet();
     } catch (e) {
-      debugPrint('Error fetching tids with card sales: $e');
+      debugPrint('Error fetching card machine ids with sales: $e');
       return {};
     }
   }
@@ -687,19 +816,20 @@ class DatabaseService {
     }
   }
 
-  /// Provider names (for this branch) that have at least one qr_payment. Used to disable delete.
-  Future<Set<String>> getProviderNamesWithQrPayments(String branchId) async {
+  /// Provider IDs (for this branch) that have at least one qr_payment. Used to disable delete.
+  Future<Set<String>> getProviderIdsWithQrPayments(String branchId) async {
     try {
       final response = await _client
           .from('qr_payments')
-          .select('provider')
-          .eq('branch_id', branchId);
+          .select('provider_id')
+          .eq('branch_id', branchId)
+          .not('provider_id', 'is', null);
       return (response as List)
-          .map((r) => r['provider'] as String?)
+          .map((r) => r['provider_id'] as String?)
           .whereType<String>()
           .toSet();
     } catch (e) {
-      debugPrint('Error fetching provider names with payments: $e');
+      debugPrint('Error fetching provider ids with payments: $e');
       return {};
     }
   }
@@ -750,19 +880,20 @@ class DatabaseService {
     }
   }
 
-  /// Platform names (for this branch) that have at least one online_sale. Used to disable delete.
-  Future<Set<String>> getPlatformNamesWithOnlineSales(String branchId) async {
+  /// Platform IDs (for this branch) that have at least one online_sale. Used to disable delete.
+  Future<Set<String>> getPlatformIdsWithOnlineSales(String branchId) async {
     try {
       final response = await _client
           .from('online_sales')
-          .select('platform')
-          .eq('branch_id', branchId);
+          .select('platform_id')
+          .eq('branch_id', branchId)
+          .not('platform_id', 'is', null);
       return (response as List)
-          .map((r) => r['platform'] as String?)
+          .map((r) => r['platform_id'] as String?)
           .whereType<String>()
           .toSet();
     } catch (e) {
-      debugPrint('Error fetching platform names with sales: $e');
+      debugPrint('Error fetching platform ids with sales: $e');
       return {};
     }
   }

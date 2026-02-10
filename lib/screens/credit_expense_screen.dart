@@ -254,11 +254,18 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
             continue; // Skip if category is not selected
           }
 
+          final supplierMatches = _suppliers
+              .where((s) => s.name == expenseRow.supplier)
+              .map((s) => s.id)
+              .whereType<String>()
+              .toList();
+          final supplierId = supplierMatches.isEmpty ? null : supplierMatches.first;
           final expense = CreditExpense(
             date: widget.selectedDate,
             userId: user.id,
             branchId: branch.id,
             supplier: expenseRow.supplier!,
+            supplierId: supplierId,
             category: expenseRow.category!,
             amount: expenseRow.amount!,
             note: expenseRow.noteController.text.trim().isEmpty

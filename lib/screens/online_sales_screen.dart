@@ -28,6 +28,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
   bool _showValidationErrors = false;
   final List<String> _existingSaleIds = []; // Track existing sale IDs
   List<String> _platforms = []; // Loaded from DB (branch-specific); fallback to defaults if empty
+  Map<String, String> _platformIdByName = {}; // name -> id for saving with platform_id
 
   @override
   void initState() {
@@ -46,6 +47,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
         setState(() {
           _isLoading = false;
           _platforms = ['Swiggy', 'Zomato', 'Own Delivery', 'Others'];
+          _platformIdByName = {};
           _sales.clear();
           _sales.add(OnlineSaleRow());
         });
@@ -54,6 +56,12 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
 
       final sales = await _dbService.getOnlineSales(widget.selectedDate, branch.id);
       final platformList = await _dbService.getOnlineSalesPlatforms(branch.id);
+      final platformIdByName = {
+        for (var p in platformList) if (p.id != null) p.name: p.id!,
+      };
+      final platformIdToName = {
+        for (var p in platformList) if (p.id != null) p.id!: p.name,
+      };
       final providerNames = platformList.map((p) => p.name).toList();
       if (!providerNames.contains('Others')) {
         providerNames.add('Others');
@@ -64,12 +72,12 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
           _sales.clear();
           _existingSaleIds.clear();
           _platforms = List.from(providerNames);
+          _platformIdByName = platformIdByName;
           for (var sale in sales) {
-            if (sale.platform.isNotEmpty && !_platforms.contains(sale.platform)) {
-              _platforms.add(sale.platform);
-            }
             final row = OnlineSaleRow();
-            row.platform = sale.platform;
+            row.platform = (sale.platformId != null && platformIdToName.containsKey(sale.platformId))
+                ? platformIdToName[sale.platformId]!
+                : sale.platform;
             row.grossController.text = sale.gross.toStringAsFixed(2);
             row.gross = sale.gross;
             if (sale.commission != null) {
@@ -91,6 +99,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
       } else {
         setState(() {
           _platforms = providerNames;
+          _platformIdByName = platformIdByName;
           _sales.clear();
           _sales.add(OnlineSaleRow());
         });
@@ -99,6 +108,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
       debugPrint('Error loading online sales: $e');
       setState(() {
         _platforms = _platforms.isEmpty ? ['Swiggy', 'Zomato', 'Own Delivery', 'Others'] : _platforms;
+        _platformIdByName = {};
         _sales.clear();
         _sales.add(OnlineSaleRow());
       });
@@ -209,10 +219,12 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
             continue; // Skip if platform is not selected
           }
 
+          final platformId = _platformIdByName[saleRow.platform!];
           final sale = OnlineSale(
             date: widget.selectedDate,
             userId: user.id,
             branchId: branch.id,
+            platformId: platformId,
             platform: saleRow.platform!,
             gross: saleRow.gross!,
             commission: saleRow.commission,

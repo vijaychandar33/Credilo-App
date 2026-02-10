@@ -295,6 +295,7 @@ CREATE TABLE credit_expenses (
   user_id UUID REFERENCES users(id),
   branch_id UUID REFERENCES branches(id) ON DELETE CASCADE,
   supplier TEXT NOT NULL,
+  supplier_id UUID REFERENCES suppliers(id) ON DELETE SET NULL,
   category TEXT NOT NULL,
   amount NUMERIC(12,2) NOT NULL,
   note TEXT,
@@ -317,7 +318,7 @@ CREATE TABLE cash_counts (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Card sales
+-- Card sales (card_machine_id added below after card_machines exists)
 CREATE TABLE card_sales (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   date DATE NOT NULL,
@@ -340,25 +341,29 @@ CREATE TABLE card_machines (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Trigger: prevent deleting a card machine that has any card_sales (same branch_id + tid).
+-- Trigger: block delete if any card_sale references this machine by card_machine_id OR by (branch_id, tid).
 CREATE OR REPLACE FUNCTION public.check_card_machine_can_delete()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM public.card_sales WHERE branch_id = OLD.branch_id AND tid = OLD.tid LIMIT 1) THEN
+  IF EXISTS (
+    SELECT 1 FROM public.card_sales
+    WHERE card_machine_id = OLD.id
+       OR (branch_id = OLD.branch_id AND tid = OLD.tid)
+    LIMIT 1
+  ) THEN
     RAISE EXCEPTION 'Cannot delete card machine: it has transactions. Delete is only allowed when there are no card sales for this machine.'
       USING ERRCODE = 'restrict_violation';
   END IF;
   RETURN OLD;
 END;
 $$;
-COMMENT ON FUNCTION public.check_card_machine_can_delete() IS 'Blocks DELETE on card_machines when card_sales exist for same (branch_id, tid).';
 DROP TRIGGER IF EXISTS prevent_card_machine_delete_with_sales ON public.card_machines;
 CREATE TRIGGER prevent_card_machine_delete_with_sales
   BEFORE DELETE ON public.card_machines FOR EACH ROW
   EXECUTE FUNCTION public.check_card_machine_can_delete();
 -- card_machines RLS: SELECT for branch users; INSERT/UPDATE/DELETE for business_owner + owner only (policies: Owners can read/insert/update/delete card machines).
 
--- Online sales
+-- Online sales (platform_id added below after online_sales_platforms exists)
 CREATE TABLE online_sales (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   date DATE NOT NULL,
@@ -381,12 +386,18 @@ CREATE TABLE online_sales_platforms (
   UNIQUE(branch_id, name)
 );
 CREATE INDEX idx_online_sales_platforms_branch ON online_sales_platforms(branch_id);
-COMMENT ON TABLE public.online_sales_platforms IS 'Branch-specific online sales platform names. online_sales.platform matches name.';
+COMMENT ON TABLE public.online_sales_platforms IS 'Branch-specific online sales platform names. online_sales links by platform_id; platform name kept for display.';
 CREATE OR REPLACE FUNCTION public.check_online_sales_platform_can_delete()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM public.online_sales WHERE branch_id = OLD.branch_id AND platform = OLD.name LIMIT 1) THEN
-    RAISE EXCEPTION 'Cannot delete platform: it has sales data.' USING ERRCODE = 'restrict_violation';
+  IF EXISTS (
+    SELECT 1 FROM public.online_sales
+    WHERE platform_id = OLD.id
+       OR (branch_id = OLD.branch_id AND platform = OLD.name)
+    LIMIT 1
+  ) THEN
+    RAISE EXCEPTION 'Cannot delete platform: it has sales data. Delete is only allowed when there are no online sales for this platform.'
+      USING ERRCODE = 'restrict_violation';
   END IF;
   RETURN OLD;
 END;
@@ -407,7 +418,7 @@ CREATE POLICY "online_sales_platforms_update_for_owners" ON public.online_sales_
 CREATE POLICY "online_sales_platforms_delete_for_owners" ON public.online_sales_platforms FOR DELETE
   USING (branch_id IN (SELECT branch_id FROM public.branch_users WHERE user_id = auth.uid() AND role IN ('business_owner', 'owner')));
 
--- QR payments
+-- QR payments (provider_id added below after upi_providers exists)
 CREATE TABLE qr_payments (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   date DATE NOT NULL,
@@ -431,13 +442,19 @@ CREATE TABLE upi_providers (
   UNIQUE(branch_id, name)
 );
 CREATE INDEX idx_upi_providers_branch ON upi_providers(branch_id);
-COMMENT ON TABLE public.upi_providers IS 'Branch-specific UPI/QR payment provider names. qr_payments.provider matches name.';
+COMMENT ON TABLE public.upi_providers IS 'Branch-specific UPI/QR payment provider names. qr_payments links by provider_id; provider name kept for display.';
 
 CREATE OR REPLACE FUNCTION public.check_upi_provider_can_delete()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM public.qr_payments WHERE branch_id = OLD.branch_id AND provider = OLD.name LIMIT 1) THEN
-    RAISE EXCEPTION 'Cannot delete UPI provider: it has payment data.' USING ERRCODE = 'restrict_violation';
+  IF EXISTS (
+    SELECT 1 FROM public.qr_payments
+    WHERE provider_id = OLD.id
+       OR (branch_id = OLD.branch_id AND provider = OLD.name)
+    LIMIT 1
+  ) THEN
+    RAISE EXCEPTION 'Cannot delete UPI provider: it has payment data. Delete is only allowed when there are no UPI payments for this provider.'
+      USING ERRCODE = 'restrict_violation';
   END IF;
   RETURN OLD;
 END;
@@ -458,6 +475,19 @@ CREATE POLICY "upi_providers_update_for_owners" ON public.upi_providers FOR UPDA
   WITH CHECK (branch_id IN (SELECT branch_id FROM public.branch_users WHERE user_id = auth.uid() AND role IN ('business_owner', 'owner')));
 CREATE POLICY "upi_providers_delete_for_owners" ON public.upi_providers FOR DELETE
   USING (branch_id IN (SELECT branch_id FROM public.branch_users WHERE user_id = auth.uid() AND role IN ('business_owner', 'owner')));
+
+-- UUID link columns (rename-safe; add after referenced tables exist)
+ALTER TABLE public.card_sales ADD COLUMN IF NOT EXISTS card_machine_id UUID REFERENCES public.card_machines(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_card_sales_card_machine_id ON public.card_sales(card_machine_id);
+COMMENT ON COLUMN public.card_sales.card_machine_id IS 'Card machine UUID. Used for linking; tid/machine_name kept for display.';
+
+ALTER TABLE public.online_sales ADD COLUMN IF NOT EXISTS platform_id UUID REFERENCES public.online_sales_platforms(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_online_sales_platform_id ON public.online_sales(platform_id);
+COMMENT ON COLUMN public.online_sales.platform_id IS 'Platform UUID. Used for linking; platform name kept for display.';
+
+ALTER TABLE public.qr_payments ADD COLUMN IF NOT EXISTS provider_id UUID REFERENCES public.upi_providers(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_qr_payments_provider_id ON public.qr_payments(provider_id);
+COMMENT ON COLUMN public.qr_payments.provider_id IS 'UPI provider UUID. Used for linking; provider name kept for display.';
 
 -- Daily QR payment totals (stores calculated total per day per branch)
 CREATE TABLE daily_qr_totals (
@@ -793,6 +823,7 @@ CREATE INDEX idx_online_expenses_date ON online_expenses(date);
 CREATE INDEX idx_online_expenses_branch ON online_expenses(branch_id);
 CREATE INDEX idx_credit_expenses_date ON credit_expenses(date);
 CREATE INDEX idx_credit_expenses_branch ON credit_expenses(branch_id);
+CREATE INDEX idx_credit_expenses_supplier_id ON credit_expenses(supplier_id);
 CREATE INDEX idx_cash_counts_date ON cash_counts(date);
 CREATE INDEX idx_cash_counts_branch ON cash_counts(branch_id);
 CREATE INDEX idx_card_sales_date ON card_sales(date);

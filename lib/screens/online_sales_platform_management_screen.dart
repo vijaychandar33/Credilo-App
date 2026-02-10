@@ -16,7 +16,7 @@ class _OnlineSalesPlatformManagementScreenState extends State<OnlineSalesPlatfor
   final DatabaseService _dbService = DatabaseService();
   final AuthService _authService = AuthService();
   List<OnlineSalesPlatform> _platforms = [];
-  Set<String> _namesWithSales = {}; // Platform names that have at least one online_sale (cannot delete)
+  Set<String> _platformIdsWithSales = {}; // platform_id that have at least one online_sale (cannot delete)
   bool _isLoading = false;
 
   @override
@@ -48,11 +48,11 @@ class _OnlineSalesPlatformManagementScreenState extends State<OnlineSalesPlatfor
       }
 
       final platforms = await _dbService.getOnlineSalesPlatforms(branch.id);
-      final namesWithSales = await _dbService.getPlatformNamesWithOnlineSales(branch.id);
+      final platformIdsWithSales = await _dbService.getPlatformIdsWithOnlineSales(branch.id);
       setState(() {
         // "Others" is a fallback option in the app (like Card/UPI), not shown or deletable here
         _platforms = platforms.where((p) => p.name != 'Others').toList();
-        _namesWithSales = namesWithSales;
+        _platformIdsWithSales = platformIdsWithSales;
       });
     } catch (e) {
       debugPrint('Error loading online sales platforms: $e');
@@ -150,7 +150,7 @@ class _OnlineSalesPlatformManagementScreenState extends State<OnlineSalesPlatfor
   }
 
   bool _canDeletePlatform(OnlineSalesPlatform platform) {
-    return !_namesWithSales.contains(platform.name);
+    return platform.id == null || !_platformIdsWithSales.contains(platform.id);
   }
 
   Future<void> _deletePlatform(OnlineSalesPlatform platform) async {

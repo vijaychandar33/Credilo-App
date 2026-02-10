@@ -23,7 +23,7 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
   final DatabaseService _dbService = DatabaseService();
   final AuthService _authService = AuthService();
   List<Supplier> _suppliers = [];
-  Map<String, double> _supplierTotals = {}; // supplier name -> total unpaid
+  Map<String, double> _supplierTotals = {}; // supplier id (or name if no id) -> total unpaid
   List<Branch> _availableBranches = [];
   Set<String> _selectedBranchIds = {};
   DateRangeOption _selectedRangeOption = DateRangeOption.allTime;
@@ -110,26 +110,35 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
         branchId: _authService.currentBranch?.id,
       );
 
-      // Calculate total unpaid for each supplier
+      // Calculate total unpaid for each supplier (by id so rename doesn't break totals)
       Map<String, double> totals = {};
       for (var supplier in suppliers) {
-        final expenses = await _dbService.getCreditExpensesBySupplier(
-          supplier.name,
-          branch.businessId,
-          branchIds: activeBranchIds,
-          startDate: dateRange?.startDate,
-          endDate: dateRange?.endDate,
-          statuses: selectedStatuses,
-        );
+        final expenses = supplier.id != null
+            ? await _dbService.getCreditExpensesBySupplierId(
+                supplier.id!,
+                branch.businessId,
+                branchIds: activeBranchIds,
+                startDate: dateRange?.startDate,
+                endDate: dateRange?.endDate,
+                statuses: selectedStatuses,
+              )
+            : await _dbService.getCreditExpensesBySupplier(
+                supplier.name,
+                branch.businessId,
+                branchIds: activeBranchIds,
+                startDate: dateRange?.startDate,
+                endDate: dateRange?.endDate,
+                statuses: selectedStatuses,
+              );
         final filteredTotal = expenses.fold(0.0, (sum, e) => sum + e.amount);
-        totals[supplier.name] = filteredTotal;
+        totals[supplier.id ?? supplier.name] = filteredTotal;
       }
-      
+
       List<Supplier> filteredSuppliers = suppliers;
       if (_selectedStatuses.length == 1 &&
           _selectedStatuses.contains(CreditExpenseStatus.unpaid)) {
         filteredSuppliers = filteredSuppliers
-            .where((supplier) => (totals[supplier.name] ?? 0) > 0)
+            .where((supplier) => (totals[supplier.id ?? supplier.name] ?? 0) > 0)
             .toList();
       }
       // Filter by supplying branches: only show suppliers that supply to at least one selected branch
@@ -584,7 +593,7 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
       itemCount: displayList.length,
       itemBuilder: (context, index) {
         final supplier = displayList[index];
-        final totalRemaining = _supplierTotals[supplier.name] ?? 0.0;
+        final totalRemaining = _supplierTotals[supplier.id ?? supplier.name] ?? 0.0;
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
           child: InkWell(
@@ -698,7 +707,7 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
   double _getDisplayTotalPending() {
     final displayList = _getSuppliersForDisplay();
     if (displayList.isEmpty) return 0.0;
-    return displayList.fold(0.0, (sum, s) => sum + (_supplierTotals[s.name] ?? 0.0));
+    return displayList.fold(0.0, (sum, s) => sum + (_supplierTotals[s.id ?? s.name] ?? 0.0));
   }
 
   Widget _buildTotalFooter() {

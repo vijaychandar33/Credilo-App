@@ -29,6 +29,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
   bool _showValidationErrors = false;
   final List<String> _existingPaymentIds = []; // Track existing payment IDs
   List<String> _providers = []; // Loaded from UPI providers (branch) + "Others"
+  Map<String, String> _providerIdByName = {}; // name -> id for saving with provider_id
   bool _useCustomClosing = false;
   int _closingHour = 0;
   int _closingMinute = 0;
@@ -66,6 +67,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
         setState(() {
           _isLoading = false;
           _providers = ['Others'];
+          _providerIdByName = {};
           _payments.clear();
           _payments.add(QrPaymentRow());
         });
@@ -74,6 +76,12 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
 
       final payments = await _dbService.getQrPayments(widget.selectedDate, branch.id);
       final upiProviders = await _dbService.getUpiProviders(branch.id);
+      final providerIdByName = {
+        for (var p in upiProviders) if (p.id != null) p.name: p.id!,
+      };
+      final providerIdToName = {
+        for (var p in upiProviders) if (p.id != null) p.id!: p.name,
+      };
       final providerNames = upiProviders.map((p) => p.name).toList();
       if (!providerNames.contains('Others')) {
         providerNames.add('Others');
@@ -95,6 +103,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                 date: payment.date,
                 userId: payment.userId,
                 branchId: payment.branchId,
+                providerId: payment.providerId,
                 provider: payment.provider,
                 amount: null, // Clear the old amount field
                 amountBeforeMidnight: payment.amount,
@@ -118,9 +127,13 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
           _payments.clear();
           _existingPaymentIds.clear();
           _providers = providerNames;
+          _providerIdByName = providerIdByName;
           for (var payment in updatedPayments) {
             final row = QrPaymentRow();
-            row.provider = payment.provider;
+            row.provider = (payment.providerId != null &&
+                    providerIdToName.containsKey(payment.providerId))
+                ? providerIdToName[payment.providerId]!
+                : payment.provider;
             
             // Load data based on whether custom closing is enabled
             if (_useCustomClosing) {
@@ -166,6 +179,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
       } else {
         setState(() {
           _providers = providerNames;
+          _providerIdByName = providerIdByName;
           _payments.clear();
           _payments.add(QrPaymentRow());
         });
@@ -174,6 +188,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
       debugPrint('Error loading QR payments: $e');
       setState(() {
         _providers = _providers.isEmpty ? ['Others'] : _providers;
+        _providerIdByName = {};
         _payments.clear();
         _payments.add(QrPaymentRow());
       });
@@ -389,10 +404,12 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
           }
 
           try {
+            final providerId = _providerIdByName[paymentRow.provider!];
             final payment = QrPayment(
               date: widget.selectedDate,
               userId: user.id,
               branchId: branch.id,
+              providerId: providerId,
               provider: paymentRow.provider!,
               amount: _useCustomClosing ? null : paymentRow.amount,
               amountBeforeMidnight: _useCustomClosing ? paymentRow.amountBeforeMidnight : null,

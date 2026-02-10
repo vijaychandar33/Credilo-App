@@ -47,6 +47,7 @@ class CreditExpense {
   final String userId;
   final String branchId;
   final String supplier;
+  final String? supplierId; // UUID; used for filtering so supplier rename doesn't break list
   final String category;
   final double amount;
   final String? note;
@@ -62,6 +63,7 @@ class CreditExpense {
     required this.userId,
     required this.branchId,
     required this.supplier,
+    this.supplierId,
     required this.category,
     required this.amount,
     this.note,
@@ -79,6 +81,7 @@ class CreditExpense {
       'user_id': userId,
       'branch_id': branchId,
       'supplier': supplier,
+      if (supplierId != null) 'supplier_id': supplierId,
       'category': category,
       'amount': amount,
       'note': note,
@@ -102,6 +105,7 @@ class CreditExpense {
       userId: json['user_id']?.toString() ?? '',
       branchId: json['branch_id']?.toString() ?? '',
       supplier: json['supplier'] ?? '',
+      supplierId: json['supplier_id']?.toString(),
       category: json['category'] ?? '',
       amount: (json['amount'] as num).toDouble(),
       note: json['note'],

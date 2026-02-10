@@ -16,7 +16,7 @@ class _UpiManagementScreenState extends State<UpiManagementScreen> {
   final DatabaseService _dbService = DatabaseService();
   final AuthService _authService = AuthService();
   List<UpiProvider> _providers = [];
-  Set<String> _namesWithPayments = {}; // Provider names that have at least one qr_payment (cannot delete)
+  Set<String> _providerIdsWithPayments = {}; // provider_id that have at least one qr_payment (cannot delete)
   bool _isLoading = false;
 
   @override
@@ -48,10 +48,10 @@ class _UpiManagementScreenState extends State<UpiManagementScreen> {
       }
 
       final providers = await _dbService.getUpiProviders(branch.id);
-      final namesWithPayments = await _dbService.getProviderNamesWithQrPayments(branch.id);
+      final providerIdsWithPayments = await _dbService.getProviderIdsWithQrPayments(branch.id);
       setState(() {
         _providers = providers;
-        _namesWithPayments = namesWithPayments;
+        _providerIdsWithPayments = providerIdsWithPayments;
       });
     } catch (e) {
       debugPrint('Error loading UPI providers: $e');
@@ -168,7 +168,7 @@ class _UpiManagementScreenState extends State<UpiManagementScreen> {
   }
 
   bool _canDeleteProvider(UpiProvider provider) {
-    return !_namesWithPayments.contains(provider.name);
+    return provider.id == null || !_providerIdsWithPayments.contains(provider.id);
   }
 
   Future<void> _deleteProvider(UpiProvider provider) async {

@@ -94,9 +94,13 @@ class _CardScreenState extends State<CardScreen> {
           CardMachine? machine;
           String? machineKey;
           try {
-            machine = _machines.firstWhere(
-              (m) => m.tid == sale.tid && m.name == sale.machineName,
-            );
+            if (sale.cardMachineId != null && sale.cardMachineId!.isNotEmpty) {
+              machine = _machines.firstWhere((m) => m.id == sale.cardMachineId);
+            } else {
+              machine = _machines.firstWhere(
+                (m) => m.tid == sale.tid && m.name == sale.machineName,
+              );
+            }
             machineKey = _machineKey(machine);
             machinesWithEntries.add(machineKey);
           } catch (_) {
@@ -266,6 +270,7 @@ class _CardScreenState extends State<CardScreen> {
             date: widget.selectedDate,
             userId: user.id,
             branchId: branch.id,
+            cardMachineId: machine.id,
             tid: machine.tid,
             machineName: machine.name,
             amount: saleRow.amount!,

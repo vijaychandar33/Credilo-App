@@ -16,7 +16,7 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
   final DatabaseService _dbService = DatabaseService();
   final AuthService _authService = AuthService();
   List<CardMachine> _machines = [];
-  Set<String> _tidsWithSales = {}; // TIDs that have at least one card sale (cannot delete)
+  Set<String> _machineIdsWithSales = {}; // card_machine_id that have sales (cannot delete)
   bool _isLoading = false;
 
   @override
@@ -48,10 +48,10 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
       }
 
       final machines = await _dbService.getCardMachines(branch.id);
-      final tidsWithSales = await _dbService.getTidsWithCardSales(branch.id);
+      final machineIdsWithSales = await _dbService.getCardMachineIdsWithCardSales(branch.id);
       setState(() {
         _machines = machines;
-        _tidsWithSales = tidsWithSales;
+        _machineIdsWithSales = machineIdsWithSales;
       });
     } catch (e) {
       debugPrint('Error loading card machines: $e');
@@ -168,7 +168,7 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
   }
 
   bool _canDeleteMachine(CardMachine machine) {
-    return !_tidsWithSales.contains(machine.tid);
+    return machine.id == null || !_machineIdsWithSales.contains(machine.id);
   }
 
   Future<void> _deleteMachine(CardMachine machine) async {
