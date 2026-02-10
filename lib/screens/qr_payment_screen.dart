@@ -9,6 +9,7 @@ import '../utils/currency_formatter.dart';
 import '../utils/delete_confirmation_dialog.dart';
 import '../utils/closing_cycle_service.dart';
 import '../utils/error_message_helper.dart';
+import 'upi_management_screen.dart';
 
 class QrPaymentScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -27,12 +28,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
   bool _isLoading = false;
   bool _showValidationErrors = false;
   final List<String> _existingPaymentIds = []; // Track existing payment IDs
-  final List<String> _providers = [
-    'Paytm',
-    'PhonePe',
-    'GooglePay',
-    'Others',
-  ];
+  List<String> _providers = []; // Loaded from UPI providers (branch) + "Others"
   bool _useCustomClosing = false;
   int _closingHour = 0;
   int _closingMinute = 0;
@@ -69,13 +65,20 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
       if (branch == null) {
         setState(() {
           _isLoading = false;
+          _providers = ['Others'];
+          _payments.clear();
+          _payments.add(QrPaymentRow());
         });
-        _addNewPayment();
         return;
       }
 
       final payments = await _dbService.getQrPayments(widget.selectedDate, branch.id);
-      
+      final upiProviders = await _dbService.getUpiProviders(branch.id);
+      final providerNames = upiProviders.map((p) => p.name).toList();
+      if (!providerNames.contains('Others')) {
+        providerNames.add('Others');
+      }
+
       if (payments.isNotEmpty) {
         // First, migrate payments if needed (outside setState for async operations)
         for (var payment in payments) {
@@ -114,7 +117,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
         setState(() {
           _payments.clear();
           _existingPaymentIds.clear();
-          
+          _providers = providerNames;
           for (var payment in updatedPayments) {
             final row = QrPaymentRow();
             row.provider = payment.provider;
@@ -161,11 +164,19 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
           }
         });
       } else {
-        _addNewPayment();
+        setState(() {
+          _providers = providerNames;
+          _payments.clear();
+          _payments.add(QrPaymentRow());
+        });
       }
     } catch (e) {
       debugPrint('Error loading QR payments: $e');
-      _addNewPayment();
+      setState(() {
+        _providers = _providers.isEmpty ? ['Others'] : _providers;
+        _payments.clear();
+        _payments.add(QrPaymentRow());
+      });
     } finally {
       setState(() {
         _isLoading = false;
@@ -467,6 +478,23 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text('UPI - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
+        actions: [
+          if (_authService.canAccessCardOrUpiManagement())
+            IconButton(
+              icon: const Icon(Icons.qr_code_2),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const UpiManagementScreen(),
+                  ),
+                ).then((_) {
+                  _loadData();
+                });
+              },
+              tooltip: 'Manage UPI Providers',
+            ),
+        ],
       ),
       body: Column(
         children: [
@@ -633,6 +661,22 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
     );
   }
 
+  List<DropdownMenuItem<String>> _buildProviderDropdownItems(String? selectedProvider) {
+    final seen = <String>{};
+    final items = <DropdownMenuItem<String>>[];
+    for (final name in _providers) {
+      if (seen.add(name)) {
+        items.add(DropdownMenuItem(value: name, child: Text(name)));
+      }
+    }
+    if (selectedProvider != null &&
+        selectedProvider.isNotEmpty &&
+        !seen.contains(selectedProvider)) {
+      items.add(DropdownMenuItem(value: selectedProvider, child: Text(selectedProvider)));
+    }
+    return items;
+  }
+
   Widget _buildPaymentRow(int index) {
     final payment = _payments[index];
     final requiresFields = _useCustomClosing
@@ -660,7 +704,9 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
               children: [
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    initialValue: payment.provider,
+                    initialValue: payment.provider != null && payment.provider!.isNotEmpty
+                        ? payment.provider
+                        : null,
                     decoration: InputDecoration(
                       labelText: 'Payment Provider',
                       border: const OutlineInputBorder(),
@@ -677,9 +723,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                             )
                           : null,
                     ),
-                    items: _providers.map((provider) {
-                      return DropdownMenuItem(value: provider, child: Text(provider));
-                    }).toList(),
+                    items: _buildProviderDropdownItems(payment.provider),
                     onChanged: (value) {
                       setState(() {
                         payment.provider = value;

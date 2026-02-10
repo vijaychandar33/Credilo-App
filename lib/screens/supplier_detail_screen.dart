@@ -145,8 +145,8 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
     if (_selectedIds.isEmpty) return;
 
     final unpaidIds = _expenses
-        .where((e) => e.id != null && 
-            _selectedIds.contains(e.id!) && 
+        .where((e) => e.id != null &&
+            _selectedIds.contains(e.id!) &&
             e.status == CreditExpenseStatus.unpaid)
         .map((e) => e.id!)
         .toList();
@@ -158,6 +158,9 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
       return;
     }
 
+    final payment = await _showPaymentMethodDialog();
+    if (payment == null || !mounted) return;
+
     setState(() {
       _isUpdating = true;
     });
@@ -166,6 +169,8 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
       await _dbService.updateCreditExpensesStatus(
         unpaidIds,
         CreditExpenseStatus.paid,
+        paymentMethod: payment.method.value,
+        paymentNote: payment.note,
       );
       await _loadExpenses();
       if (mounted) {
@@ -180,10 +185,21 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
         );
       }
     } finally {
-      setState(() {
-        _isUpdating = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isUpdating = false;
+        });
+      }
     }
+  }
+
+  /// Returns (method, note) or null if cancelled. Note is required when method is others.
+  Future<({CreditExpensePaymentMethod method, String? note})?> _showPaymentMethodDialog() async {
+    return showDialog<({CreditExpensePaymentMethod method, String? note})>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => _PaymentMethodDialog(),
+    );
   }
 
   Future<void> _showStatusChangeDialog(CreditExpense expense) async {
@@ -259,33 +275,62 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
     );
 
     if (newStatus != null && newStatus != expense.status) {
-      setState(() {
-        _isUpdating = true;
-      });
-
-      try {
-        await _dbService.updateCreditExpenseStatus(expense.id!, newStatus);
-        await _loadExpenses();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Status changed to ${newStatus == CreditExpenseStatus.paid ? 'Paid' : 'Unpaid'}',
-              ),
-            ),
+      if (newStatus == CreditExpenseStatus.paid) {
+        final payment = await _showPaymentMethodDialog();
+        if (payment == null || !mounted) return;
+        setState(() {
+          _isUpdating = true;
+        });
+        try {
+          await _dbService.updateCreditExpenseStatus(
+            expense.id!,
+            CreditExpenseStatus.paid,
+            paymentMethod: payment.method.value,
+            paymentNote: payment.note,
           );
+          await _loadExpenses();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Status changed to Paid')),
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Unable to update status. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
+            );
+          }
+        } finally {
+          if (mounted) {
+            setState(() {
+              _isUpdating = false;
+            });
+          }
         }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Unable to update status. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
-          );
-        }
-      } finally {
-        if (mounted) {
-          setState(() {
-            _isUpdating = false;
-          });
+      } else {
+        setState(() {
+          _isUpdating = true;
+        });
+        try {
+          await _dbService.updateCreditExpenseStatus(expense.id!, CreditExpenseStatus.unpaid);
+          await _loadExpenses();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Status changed to Unpaid')),
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Unable to update status. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
+            );
+          }
+        } finally {
+          if (mounted) {
+            setState(() {
+              _isUpdating = false;
+            });
+          }
         }
       }
     }
@@ -592,6 +637,19 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                                                 ),
                                               ],
                                             ),
+                                            if (expense.paymentDisplayText != null) ...[
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                expense.paymentDisplayText!,
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w500,
+                                                  color: AppColors.textSecondary,
+                                                ),
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ],
                                             if (expense.note != null && expense.note!.isNotEmpty) ...[
                                               const SizedBox(height: 4),
                                               Text(
@@ -651,6 +709,111 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                   ),
               ],
             ),
+    );
+  }
+}
+
+class _PaymentMethodDialog extends StatefulWidget {
+  @override
+  State<_PaymentMethodDialog> createState() => _PaymentMethodDialogState();
+}
+
+class _PaymentMethodDialogState extends State<_PaymentMethodDialog> {
+  CreditExpensePaymentMethod _method = CreditExpensePaymentMethod.cash;
+  final _noteController = TextEditingController();
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  void _confirm() {
+    if (_method == CreditExpensePaymentMethod.others) {
+      final note = _noteController.text.trim();
+      if (note.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter a note for Others')),
+        );
+        return;
+      }
+      Navigator.pop(context, (method: _method, note: note));
+    } else {
+      Navigator.pop(context, (method: _method, note: null));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Payment method'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'How was this amount paid?',
+              style: TextStyle(fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 12),
+            RadioGroup<CreditExpensePaymentMethod>(
+              groupValue: _method,
+              onChanged: (v) {
+                if (v != null) setState(() => _method = v);
+              },
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ...CreditExpensePaymentMethod.values.map((m) {
+                    final isOthers = m == CreditExpensePaymentMethod.others;
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ListTile(
+                          title: Text(m.displayLabel),
+                          leading: Radio<CreditExpensePaymentMethod>(
+                            value: m,
+                            activeColor: Theme.of(context).colorScheme.primary,
+                          ),
+                          contentPadding: EdgeInsets.zero,
+                          onTap: () => setState(() => _method = m),
+                        ),
+                        if (isOthers && _method == CreditExpensePaymentMethod.others) ...[
+                          Padding(
+                            padding: const EdgeInsets.only(left: 48, right: 8, bottom: 8),
+                            child: TextField(
+                              controller: _noteController,
+                              decoration: const InputDecoration(
+                                labelText: 'Note *',
+                                hintText: 'Enter payment details',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                              maxLines: 2,
+                              onChanged: (_) => setState(() {}),
+                            ),
+                          ),
+                        ],
+                      ],
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _confirm,
+          child: const Text('Confirm'),
+        ),
+      ],
     );
   }
 }

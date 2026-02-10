@@ -8,6 +8,7 @@ import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/delete_confirmation_dialog.dart';
 import '../utils/error_message_helper.dart';
+import 'online_sales_platform_management_screen.dart';
 
 class OnlineSalesScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -26,12 +27,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
   bool _isLoading = false;
   bool _showValidationErrors = false;
   final List<String> _existingSaleIds = []; // Track existing sale IDs
-  final List<String> _platforms = [
-    'Swiggy',
-    'Zomato',
-    'Own Delivery',
-    'Others',
-  ];
+  List<String> _platforms = []; // Loaded from DB (branch-specific); fallback to defaults if empty
 
   @override
   void initState() {
@@ -49,19 +45,29 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
       if (branch == null) {
         setState(() {
           _isLoading = false;
+          _platforms = ['Swiggy', 'Zomato', 'Own Delivery', 'Others'];
+          _sales.clear();
+          _sales.add(OnlineSaleRow());
         });
-        _addNewSale();
         return;
       }
 
       final sales = await _dbService.getOnlineSales(widget.selectedDate, branch.id);
-      
+      final platformList = await _dbService.getOnlineSalesPlatforms(branch.id);
+      final providerNames = platformList.map((p) => p.name).toList();
+      if (!providerNames.contains('Others')) {
+        providerNames.add('Others');
+      }
+
       if (sales.isNotEmpty) {
         setState(() {
           _sales.clear();
           _existingSaleIds.clear();
-          
+          _platforms = List.from(providerNames);
           for (var sale in sales) {
+            if (sale.platform.isNotEmpty && !_platforms.contains(sale.platform)) {
+              _platforms.add(sale.platform);
+            }
             final row = OnlineSaleRow();
             row.platform = sale.platform;
             row.grossController.text = sale.gross.toStringAsFixed(2);
@@ -75,7 +81,6 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
               row.notesController.text = sale.notes!;
             }
             row._calculateNet();
-            
             if (sale.id != null) {
               row.id = sale.id!;
               _existingSaleIds.add(sale.id!);
@@ -84,11 +89,19 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
           }
         });
       } else {
-        _addNewSale();
+        setState(() {
+          _platforms = providerNames;
+          _sales.clear();
+          _sales.add(OnlineSaleRow());
+        });
       }
     } catch (e) {
       debugPrint('Error loading online sales: $e');
-      _addNewSale();
+      setState(() {
+        _platforms = _platforms.isEmpty ? ['Swiggy', 'Zomato', 'Own Delivery', 'Others'] : _platforms;
+        _sales.clear();
+        _sales.add(OnlineSaleRow());
+      });
     } finally {
       setState(() {
         _isLoading = false;
@@ -251,6 +264,23 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text('Online Sales - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
+        actions: [
+          if (_authService.canAccessCardOrUpiManagement())
+            IconButton(
+              icon: const Icon(Icons.shopping_bag),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const OnlineSalesPlatformManagementScreen(),
+                  ),
+                ).then((_) {
+                  _loadData();
+                });
+              },
+              tooltip: 'Manage Platforms',
+            ),
+        ],
       ),
       body: Column(
         children: [

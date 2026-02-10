@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import '../models/branch.dart';
 import '../models/supplier.dart';
+import '../services/auth_service.dart';
 import '../services/database_service.dart';
+import '../utils/app_colors.dart';
 import '../utils/error_message_helper.dart';
 
 class SupplierEditScreen extends StatefulWidget {
@@ -14,11 +17,14 @@ class SupplierEditScreen extends StatefulWidget {
 
 class _SupplierEditScreenState extends State<SupplierEditScreen> {
   final DatabaseService _dbService = DatabaseService();
+  final AuthService _authService = AuthService();
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _contactController = TextEditingController();
   final _addressController = TextEditingController();
   bool _isSaving = false;
+  late List<Branch> _branches;
+  Set<String> _supplyingToBranchIds = {};
 
   @override
   void initState() {
@@ -26,6 +32,18 @@ class _SupplierEditScreenState extends State<SupplierEditScreen> {
     _nameController.text = widget.supplier.name;
     _contactController.text = widget.supplier.contact ?? '';
     _addressController.text = widget.supplier.address ?? '';
+    _branches = _getBranches();
+    _supplyingToBranchIds = widget.supplier.supplyingBranchIds != null
+        ? Set.from(widget.supplier.supplyingBranchIds!)
+        : {};
+  }
+
+  List<Branch> _getBranches() {
+    final owner = _authService.ownerBranches;
+    if (owner.isNotEmpty) return List.from(owner);
+    if (_authService.userBranches.isNotEmpty) return List.from(_authService.userBranches);
+    final cur = _authService.currentBranch;
+    return cur != null ? [cur] : [];
   }
 
   @override
@@ -54,6 +72,9 @@ class _SupplierEditScreenState extends State<SupplierEditScreen> {
             ? null
             : _addressController.text.trim(),
         businessId: widget.supplier.businessId,
+        supplyingBranchIds: _supplyingToBranchIds.isEmpty
+            ? null
+            : _supplyingToBranchIds.toList(),
       );
 
       await _dbService.updateSupplier(updatedSupplier);
@@ -78,6 +99,106 @@ class _SupplierEditScreenState extends State<SupplierEditScreen> {
     }
   }
 
+  Future<void> _showSupplyingToSheet() async {
+    if (_branches.isEmpty) return;
+    final current = Set<String>.from(_supplyingToBranchIds);
+    final result = await showModalBottomSheet<Set<String>>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        Set<String> temp = Set<String>.from(current);
+        return SafeArea(
+          child: SizedBox(
+            height: MediaQuery.of(context).size.height * 0.5,
+            child: StatefulBuilder(
+              builder: (context, setModalState) {
+                final allSelected = temp.length == _branches.length;
+                return Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      const Text(
+                        'Supplying to',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 8),
+                      CheckboxListTile(
+                        title: const Text('All branches'),
+                        value: allSelected,
+                        onChanged: (v) {
+                          setModalState(() {
+                            temp = v == true
+                                ? _branches.map((b) => b.id).toSet()
+                                : {};
+                          });
+                        },
+                      ),
+                      const Divider(),
+                      Expanded(
+                        child: ListView(
+                          children: _branches.map((b) {
+                            return CheckboxListTile(
+                              title: Text(b.name),
+                              subtitle: b.location.isNotEmpty ? Text(b.location) : null,
+                              value: temp.contains(b.id),
+                              onChanged: (v) {
+                                setModalState(() {
+                                  if (v == true) {
+                                    temp.add(b.id);
+                                  } else {
+                                    temp.remove(b.id);
+                                  }
+                                });
+                              },
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.pop(context, current),
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: () => Navigator.pop(context, temp),
+                              child: const Text('Apply'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+    if (result != null) {
+      setState(() => _supplyingToBranchIds = result);
+    }
+  }
+
+  String _supplyingToLabel() {
+    if (_supplyingToBranchIds.isEmpty) return 'All branches';
+    if (_supplyingToBranchIds.length == _branches.length) return 'All branches';
+    if (_supplyingToBranchIds.length == 1) {
+      try {
+        final b = _branches.firstWhere((b) => b.id == _supplyingToBranchIds.first);
+        return b.name;
+      } catch (_) {
+        return '1 branch';
+      }
+    }
+    return '${_supplyingToBranchIds.length} branches';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -117,6 +238,29 @@ class _SupplierEditScreenState extends State<SupplierEditScreen> {
                               return null;
                             },
                             autofocus: false,
+                          ),
+                          const SizedBox(height: 16),
+                          GestureDetector(
+                            onTap: _branches.isEmpty ? null : _showSupplyingToSheet,
+                            child: InputDecorator(
+                              decoration: InputDecoration(
+                                labelText: 'Supplying to',
+                                border: const OutlineInputBorder(),
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                                suffixIcon: _branches.isNotEmpty
+                                    ? const Icon(Icons.arrow_drop_down)
+                                    : null,
+                              ),
+                              child: Text(
+                                _branches.isEmpty ? 'No branches' : _supplyingToLabel(),
+                                style: TextStyle(
+                                  color: _branches.isEmpty
+                                      ? AppColors.textSecondary
+                                      : AppColors.textPrimary,
+                                ),
+                              ),
+                            ),
                           ),
                           const SizedBox(height: 16),
                           TextFormField(

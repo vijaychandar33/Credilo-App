@@ -317,7 +317,7 @@ class _CardScreenState extends State<CardScreen> {
       appBar: AppBar(
         title: Text('Card Sales - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
         actions: [
-          if (_authService.canManageUsers())
+          if (_authService.canAccessCardOrUpiManagement())
             IconButton(
               icon: const Icon(Icons.credit_card),
               onPressed: () {
@@ -475,11 +475,11 @@ class _CardScreenState extends State<CardScreen> {
                           },
                         ),
                 ),
-                if (!sale.isMachineLocked)
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, color: AppColors.error),
-                    onPressed: () => _removeSale(index),
-                  ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, color: AppColors.error),
+                  onPressed: () => _removeSale(index),
+                  tooltip: 'Delete transaction',
+                ),
               ],
             ),
             const SizedBox(height: 8),

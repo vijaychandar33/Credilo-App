@@ -107,10 +107,14 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
       }
 
       final suppliers = await _dbService.getSuppliers(branch.businessId);
+      // Only suppliers that supply to this branch (or to all branches)
+      final forBranch = suppliers
+          .where((s) => s.suppliesToBranch(branch.id))
+          .toList();
       setState(() {
         // Remove duplicates by name (case-insensitive)
         final uniqueSuppliers = <String, Supplier>{};
-        for (var supplier in suppliers) {
+        for (var supplier in forBranch) {
           final key = supplier.name.toLowerCase();
           if (!uniqueSuppliers.containsKey(key)) {
             uniqueSuppliers[key] = supplier;
@@ -409,6 +413,41 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
     );
   }
 
+  /// Unique supplier names for selection (from _suppliers, plus orphan if any).
+  List<String> _uniqueSupplierNames([String? orphanIfNotInList]) {
+    final seen = <String>{};
+    final names = <String>[];
+    for (var s in _suppliers) {
+      if (seen.add(s.name)) names.add(s.name);
+    }
+    if (orphanIfNotInList != null &&
+        orphanIfNotInList.isNotEmpty &&
+        !seen.contains(orphanIfNotInList)) {
+      names.add(orphanIfNotInList);
+    }
+    return names;
+  }
+
+  Future<void> _openSupplierPicker(int expenseIndex) async {
+    final expense = _expenses[expenseIndex];
+    final names = _uniqueSupplierNames(expense.supplier);
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => _SupplierPickerSheet(
+        supplierNames: names,
+        initialSelected: expense.supplier,
+        searchHint: 'Search suppliers',
+      ),
+    );
+    if (selected != null && mounted) {
+      setState(() {
+        expense.supplier = selected;
+      });
+    }
+  }
+
   Widget _buildExpenseRow(int index) {
     final expense = _expenses[index];
     final requiresFields = expense.amount != null && expense.amount! > 0;
@@ -427,25 +466,28 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
             Row(
               children: [
                 Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: expense.supplier,
-                    decoration: InputDecoration(
-                      labelText: 'Supplier',
-                      border: const OutlineInputBorder(),
-                      isDense: true,
-                      errorText: showSupplierError ? 'Select supplier' : null,
+                  child: InkWell(
+                    onTap: () => _openSupplierPicker(index),
+                    borderRadius: BorderRadius.circular(4),
+                    child: InputDecorator(
+                      decoration: InputDecoration(
+                        labelText: 'Supplier',
+                        border: const OutlineInputBorder(),
+                        isDense: true,
+                        errorText: showSupplierError ? 'Select supplier' : null,
+                        suffixIcon: const Icon(Icons.search, size: 22),
+                      ),
+                      child: Text(
+                        expense.supplier != null && expense.supplier!.isNotEmpty
+                            ? expense.supplier!
+                            : 'Select supplier',
+                        style: TextStyle(
+                          color: expense.supplier != null && expense.supplier!.isNotEmpty
+                              ? null
+                              : AppColors.textSecondary,
+                        ),
+                      ),
                     ),
-                    items: _suppliers.map((supplier) {
-                      return DropdownMenuItem(
-                        value: supplier.name,
-                        child: Text(supplier.name),
-                      );
-                    }).toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        expense.supplier = value;
-                      });
-                    },
                   ),
                 ),
                 IconButton(
@@ -526,6 +568,120 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
       expense.dispose();
     }
     super.dispose();
+  }
+}
+
+class _SupplierPickerSheet extends StatefulWidget {
+  final List<String> supplierNames;
+  final String? initialSelected;
+  final String searchHint;
+
+  const _SupplierPickerSheet({
+    required this.supplierNames,
+    this.initialSelected,
+    this.searchHint = 'Search suppliers',
+  });
+
+  @override
+  State<_SupplierPickerSheet> createState() => _SupplierPickerSheetState();
+}
+
+class _SupplierPickerSheetState extends State<_SupplierPickerSheet> {
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<String> get _filtered {
+    final q = _query.trim().toLowerCase();
+    if (q.isEmpty) return widget.supplierNames;
+    return widget.supplierNames
+        .where((name) => name.toLowerCase().contains(q))
+        .toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _filtered;
+    return DraggableScrollableSheet(
+      initialChildSize: 0.6,
+      minChildSize: 0.4,
+      maxChildSize: 0.9,
+      expand: false,
+      builder: (context, scrollController) {
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: Row(
+                children: [
+                  Text(
+                    'Select supplier',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                    tooltip: 'Close',
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  hintText: widget.searchHint,
+                  prefixIcon: const Icon(Icons.search),
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                ),
+                onChanged: (value) => setState(() => _query = value),
+                autofocus: true,
+              ),
+            ),
+            Expanded(
+              child: filtered.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No suppliers match',
+                        style: TextStyle(color: AppColors.textSecondary),
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: scrollController,
+                      itemCount: filtered.length,
+                      itemBuilder: (context, i) {
+                        final name = filtered[i];
+                        final isSelected = name == widget.initialSelected;
+                        return ListTile(
+                          title: Text(name),
+                          trailing: isSelected
+                              ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary)
+                              : null,
+                          onTap: () => Navigator.pop(context, name),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        );
+      },
+    );
   }
 }
 

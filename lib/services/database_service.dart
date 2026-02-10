@@ -4,7 +4,9 @@ import '../models/online_expense.dart';
 import '../models/cash_count.dart';
 import '../models/card_sale.dart';
 import '../models/online_sale.dart';
+import '../models/online_sales_platform.dart';
 import '../models/qr_payment.dart';
+import '../models/upi_provider.dart';
 import '../models/due.dart';
 import '../models/cash_closing.dart';
 import '../models/branch.dart';
@@ -278,25 +280,39 @@ class DatabaseService {
     }
   }
 
-  Future<void> updateCreditExpenseStatus(String id, CreditExpenseStatus status) async {
+  Future<void> updateCreditExpenseStatus(
+    String id,
+    CreditExpenseStatus status, {
+    String? paymentMethod,
+    String? paymentNote,
+  }) async {
     try {
-      await _client
-          .from('credit_expenses')
-          .update({'status': status == CreditExpenseStatus.paid ? 'paid' : 'unpaid'})
-          .eq('id', id);
+      final Map<String, dynamic> payload = {
+        'status': status == CreditExpenseStatus.paid ? 'paid' : 'unpaid',
+        'payment_method': status == CreditExpenseStatus.paid ? paymentMethod : null,
+        'payment_note': status == CreditExpenseStatus.paid ? paymentNote : null,
+      };
+      await _client.from('credit_expenses').update(payload).eq('id', id);
     } catch (e) {
       debugPrint('Error updating credit expense status: $e');
       rethrow;
     }
   }
 
-  Future<void> updateCreditExpensesStatus(List<String> ids, CreditExpenseStatus status) async {
+  Future<void> updateCreditExpensesStatus(
+    List<String> ids,
+    CreditExpenseStatus status, {
+    String? paymentMethod,
+    String? paymentNote,
+  }) async {
     try {
+      final Map<String, dynamic> payload = {
+        'status': status == CreditExpenseStatus.paid ? 'paid' : 'unpaid',
+        'payment_method': status == CreditExpenseStatus.paid ? paymentMethod : null,
+        'payment_note': status == CreditExpenseStatus.paid ? paymentNote : null,
+      };
       for (var id in ids) {
-        await _client
-            .from('credit_expenses')
-            .update({'status': status == CreditExpenseStatus.paid ? 'paid' : 'unpaid'})
-            .eq('id', id);
+        await _client.from('credit_expenses').update(payload).eq('id', id);
       }
     } catch (e) {
       debugPrint('Error updating credit expenses status: $e');
@@ -354,6 +370,10 @@ class DatabaseService {
             'name': supplier.name,
             'contact': supplier.contact,
             'address': supplier.address,
+            'supplying_branch_ids': supplier.supplyingBranchIds != null &&
+                    supplier.supplyingBranchIds!.isNotEmpty
+                ? supplier.supplyingBranchIds
+                : null,
           })
           .eq('id', supplier.id!);
     } catch (e) {
@@ -517,6 +537,21 @@ class DatabaseService {
     }
   }
 
+  /// Returns TID values (for the given branch) that have at least one card_sale. Used to disable delete for machines with transactions.
+  Future<Set<String>> getTidsWithCardSales(String branchId) async {
+    try {
+      final response = await _client
+          .from('card_sales')
+          .select('tid')
+          .eq('branch_id', branchId);
+      final list = (response as List).map((r) => r['tid'] as String?).whereType<String>().toList();
+      return list.toSet();
+    } catch (e) {
+      debugPrint('Error fetching tids with card sales: $e');
+      return {};
+    }
+  }
+
   Future<void> deleteCardMachine(String machineId) async {
     try {
       await _client.from('card_machines').delete().eq('id', machineId);
@@ -611,6 +646,132 @@ class DatabaseService {
       await _client.from('qr_payments').delete().eq('id', paymentId);
     } catch (e) {
       debugPrint('Error deleting QR payment: $e');
+      rethrow;
+    }
+  }
+
+  // UPI Providers (branch-specific, like card machines)
+  Future<List<UpiProvider>> getUpiProviders(String branchId) async {
+    try {
+      final response = await _client
+          .from('upi_providers')
+          .select()
+          .eq('branch_id', branchId)
+          .order('name', ascending: true);
+      return (response as List).map((json) => UpiProvider.fromJson(json)).toList();
+    } catch (e) {
+      debugPrint('Error fetching UPI providers: $e');
+      return [];
+    }
+  }
+
+  Future<void> saveUpiProvider(UpiProvider provider) async {
+    try {
+      await _client.from('upi_providers').insert(provider.toJson());
+    } catch (e) {
+      debugPrint('Error saving UPI provider: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> updateUpiProvider(UpiProvider provider) async {
+    if (provider.id == null) throw Exception('UpiProvider id required for update');
+    try {
+      await _client
+          .from('upi_providers')
+          .update({'name': provider.name, 'location': provider.location})
+          .eq('id', provider.id!);
+    } catch (e) {
+      debugPrint('Error updating UPI provider: $e');
+      rethrow;
+    }
+  }
+
+  /// Provider names (for this branch) that have at least one qr_payment. Used to disable delete.
+  Future<Set<String>> getProviderNamesWithQrPayments(String branchId) async {
+    try {
+      final response = await _client
+          .from('qr_payments')
+          .select('provider')
+          .eq('branch_id', branchId);
+      return (response as List)
+          .map((r) => r['provider'] as String?)
+          .whereType<String>()
+          .toSet();
+    } catch (e) {
+      debugPrint('Error fetching provider names with payments: $e');
+      return {};
+    }
+  }
+
+  Future<void> deleteUpiProvider(String providerId) async {
+    try {
+      await _client.from('upi_providers').delete().eq('id', providerId);
+    } catch (e) {
+      debugPrint('Error deleting UPI provider: $e');
+      rethrow;
+    }
+  }
+
+  // Online Sales Platforms (branch-specific, like card machines / UPI providers)
+  Future<List<OnlineSalesPlatform>> getOnlineSalesPlatforms(String branchId) async {
+    try {
+      final response = await _client
+          .from('online_sales_platforms')
+          .select()
+          .eq('branch_id', branchId)
+          .order('name', ascending: true);
+      return (response as List).map((json) => OnlineSalesPlatform.fromJson(json)).toList();
+    } catch (e) {
+      debugPrint('Error fetching online sales platforms: $e');
+      return [];
+    }
+  }
+
+  Future<void> saveOnlineSalesPlatform(OnlineSalesPlatform platform) async {
+    try {
+      await _client.from('online_sales_platforms').insert(platform.toJson());
+    } catch (e) {
+      debugPrint('Error saving online sales platform: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> updateOnlineSalesPlatform(OnlineSalesPlatform platform) async {
+    if (platform.id == null) throw Exception('OnlineSalesPlatform id required for update');
+    try {
+      await _client
+          .from('online_sales_platforms')
+          .update({'name': platform.name})
+          .eq('id', platform.id!);
+    } catch (e) {
+      debugPrint('Error updating online sales platform: $e');
+      rethrow;
+    }
+  }
+
+  /// Platform names (for this branch) that have at least one online_sale. Used to disable delete.
+  Future<Set<String>> getPlatformNamesWithOnlineSales(String branchId) async {
+    try {
+      final response = await _client
+          .from('online_sales')
+          .select('platform')
+          .eq('branch_id', branchId);
+      return (response as List)
+          .map((r) => r['platform'] as String?)
+          .whereType<String>()
+          .toSet();
+    } catch (e) {
+      debugPrint('Error fetching platform names with sales: $e');
+      return {};
+    }
+  }
+
+  Future<void> deleteOnlineSalesPlatform(String platformId) async {
+    try {
+      await _client.from('online_sales_platforms').delete().eq('id', platformId);
+    } catch (e) {
+      debugPrint('Error deleting online sales platform: $e');
       rethrow;
     }
   }

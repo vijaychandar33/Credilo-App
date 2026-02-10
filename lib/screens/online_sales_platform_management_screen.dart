@@ -1,22 +1,22 @@
 import 'package:flutter/material.dart';
 import '../utils/app_colors.dart';
 import '../utils/error_message_helper.dart';
-import '../models/card_sale.dart';
+import '../models/online_sales_platform.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
 
-class CardMachineManagementScreen extends StatefulWidget {
-  const CardMachineManagementScreen({super.key});
+class OnlineSalesPlatformManagementScreen extends StatefulWidget {
+  const OnlineSalesPlatformManagementScreen({super.key});
 
   @override
-  State<CardMachineManagementScreen> createState() => _CardMachineManagementScreenState();
+  State<OnlineSalesPlatformManagementScreen> createState() => _OnlineSalesPlatformManagementScreenState();
 }
 
-class _CardMachineManagementScreenState extends State<CardMachineManagementScreen> {
+class _OnlineSalesPlatformManagementScreenState extends State<OnlineSalesPlatformManagementScreen> {
   final DatabaseService _dbService = DatabaseService();
   final AuthService _authService = AuthService();
-  List<CardMachine> _machines = [];
-  Set<String> _tidsWithSales = {}; // TIDs that have at least one card sale (cannot delete)
+  List<OnlineSalesPlatform> _platforms = [];
+  Set<String> _namesWithSales = {}; // Platform names that have at least one online_sale (cannot delete)
   bool _isLoading = false;
 
   @override
@@ -28,10 +28,10 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
       });
       return;
     }
-    _loadMachines();
+    _loadPlatforms();
   }
 
-  Future<void> _loadMachines() async {
+  Future<void> _loadPlatforms() async {
     setState(() {
       _isLoading = true;
     });
@@ -47,17 +47,18 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
         return;
       }
 
-      final machines = await _dbService.getCardMachines(branch.id);
-      final tidsWithSales = await _dbService.getTidsWithCardSales(branch.id);
+      final platforms = await _dbService.getOnlineSalesPlatforms(branch.id);
+      final namesWithSales = await _dbService.getPlatformNamesWithOnlineSales(branch.id);
       setState(() {
-        _machines = machines;
-        _tidsWithSales = tidsWithSales;
+        // "Others" is a fallback option in the app (like Card/UPI), not shown or deletable here
+        _platforms = platforms.where((p) => p.name != 'Others').toList();
+        _namesWithSales = namesWithSales;
       });
     } catch (e) {
-      debugPrint('Error loading card machines: $e');
+      debugPrint('Error loading online sales platforms: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Unable to load machines. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
+          SnackBar(content: Text('Unable to load platforms. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
         );
       }
     } finally {
@@ -67,42 +68,20 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
     }
   }
 
-  Future<void> _showAddEditDialog({CardMachine? machine}) async {
-    final nameController = TextEditingController(text: machine?.name ?? '');
-    final tidController = TextEditingController(text: machine?.tid ?? '');
-    final locationController = TextEditingController(text: machine?.location ?? '');
+  Future<void> _showAddEditDialog({OnlineSalesPlatform? platform}) async {
+    final nameController = TextEditingController(text: platform?.name ?? '');
 
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(machine == null ? 'Add Card Machine' : 'Edit Card Machine'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameController,
-              decoration: const InputDecoration(
-                labelText: 'Machine Name *',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: tidController,
-              decoration: const InputDecoration(
-                labelText: 'TID *',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: locationController,
-              decoration: const InputDecoration(
-                labelText: 'Location (optional)',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
+        title: Text(platform == null ? 'Add Platform' : 'Edit Platform'),
+        content: TextField(
+          controller: nameController,
+          decoration: const InputDecoration(
+            labelText: 'Name *',
+            hintText: 'e.g. Swiggy, Zomato, Own Delivery',
+            border: OutlineInputBorder(),
+          ),
         ),
         actions: [
           TextButton(
@@ -111,16 +90,16 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
           ),
           ElevatedButton(
             onPressed: () async {
-              if (nameController.text.trim().isEmpty || tidController.text.trim().isEmpty) {
+              if (nameController.text.trim().isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Name and TID are required')),
+                  const SnackBar(content: Text('Name is required')),
                 );
                 return;
               }
 
               final navigator = Navigator.of(context);
               final messenger = ScaffoldMessenger.of(context);
-              
+
               try {
                 final branch = _authService.currentBranch;
                 if (branch == null) {
@@ -132,52 +111,55 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
                   return;
                 }
 
-                final updatedMachine = CardMachine(
-                  id: machine?.id,
-                  name: nameController.text.trim(),
-                  tid: tidController.text.trim(),
-                  location: locationController.text.trim().isEmpty
-                      ? null
-                      : locationController.text.trim(),
-                  branchId: branch.id,
-                );
+                final name = nameController.text.trim();
 
-                await _dbService.saveCardMachine(updatedMachine);
+                if (platform == null) {
+                  await _dbService.saveOnlineSalesPlatform(OnlineSalesPlatform(
+                    branchId: branch.id,
+                    name: name,
+                  ));
+                } else {
+                  await _dbService.updateOnlineSalesPlatform(OnlineSalesPlatform(
+                    id: platform.id,
+                    branchId: branch.id,
+                    name: name,
+                  ));
+                }
                 if (!mounted) return;
                 navigator.pop();
-                _loadMachines();
+                _loadPlatforms();
                 messenger.showSnackBar(
                   SnackBar(
-                    content: Text(machine == null
-                        ? 'Machine added successfully'
-                        : 'Machine updated successfully'),
+                    content: Text(platform == null
+                        ? 'Platform added successfully'
+                        : 'Platform updated successfully'),
                   ),
                 );
               } catch (e) {
                 if (!mounted) return;
                 messenger.showSnackBar(
-                  SnackBar(content: Text('Unable to save machine. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
+                  SnackBar(content: Text('Unable to save. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
                 );
               }
             },
-            child: Text(machine == null ? 'Add' : 'Update'),
+            child: Text(platform == null ? 'Add' : 'Update'),
           ),
         ],
       ),
     );
   }
 
-  bool _canDeleteMachine(CardMachine machine) {
-    return !_tidsWithSales.contains(machine.tid);
+  bool _canDeletePlatform(OnlineSalesPlatform platform) {
+    return !_namesWithSales.contains(platform.name);
   }
 
-  Future<void> _deleteMachine(CardMachine machine) async {
-    if (machine.id == null) return;
-    if (!_canDeleteMachine(machine)) {
+  Future<void> _deletePlatform(OnlineSalesPlatform platform) async {
+    if (platform.id == null) return;
+    if (!_canDeletePlatform(platform)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Cannot delete: this machine has transactions. Delete is only allowed when there are no card sales.'),
+            content: Text('Cannot delete: this platform has sales data. Delete is only allowed when there are no online sales for it.'),
           ),
         );
       }
@@ -187,8 +169,8 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Machine'),
-        content: Text('Are you sure you want to delete "${machine.name}"?'),
+        title: const Text('Delete Platform'),
+        content: Text('Are you sure you want to delete "${platform.name}"?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -208,18 +190,18 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
 
     if (confirmed == true) {
       try {
-        await _dbService.deleteCardMachine(machine.id!);
-        _loadMachines();
+        await _dbService.deleteOnlineSalesPlatform(platform.id!);
+        _loadPlatforms();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Machine deleted successfully')),
+            const SnackBar(content: Text('Platform deleted successfully')),
           );
         }
       } catch (e) {
         if (mounted) {
-          final msg = e.toString().toLowerCase().contains('transaction') || e.toString().toLowerCase().contains('cannot delete')
-              ? 'Cannot delete: this machine has transactions.'
-              : 'Unable to delete machine. ${ErrorMessageHelper.getUserFriendlyError(e)}';
+          final msg = e.toString().toLowerCase().contains('sales') || e.toString().toLowerCase().contains('cannot delete')
+              ? 'Cannot delete: this platform has sales data.'
+              : 'Unable to delete. ${ErrorMessageHelper.getUserFriendlyError(e)}';
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
         }
       }
@@ -230,74 +212,67 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Card Machine Management'),
+        title: const Text('Online Sales Platform Management'),
         actions: [
           IconButton(
             icon: const Icon(Icons.add),
             onPressed: () => _showAddEditDialog(),
-            tooltip: 'Add Machine',
+            tooltip: 'Add Platform',
           ),
         ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _machines.isEmpty
+          : _platforms.isEmpty
               ? Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.credit_card, size: 64, color: AppColors.textTertiary),
+                      Icon(Icons.shopping_bag, size: 64, color: AppColors.textTertiary),
                       const SizedBox(height: 16),
                       const Text(
-                        'No card machines added',
+                        'No platforms added',
                         style: TextStyle(fontSize: 18, color: AppColors.textTertiary),
                       ),
                       const SizedBox(height: 8),
                       ElevatedButton.icon(
                         onPressed: () => _showAddEditDialog(),
                         icon: const Icon(Icons.add),
-                        label: const Text('Add First Machine'),
+                        label: const Text('Add First Platform'),
                       ),
                     ],
                   ),
                 )
               : ListView.builder(
                   padding: const EdgeInsets.all(16),
-                  itemCount: _machines.length,
+                  itemCount: _platforms.length,
                   itemBuilder: (context, index) {
-                    final machine = _machines[index];
-                    final canDelete = _canDeleteMachine(machine);
+                    final platform = _platforms[index];
+                    final canDelete = _canDeletePlatform(platform);
                     return Card(
                       margin: const EdgeInsets.only(bottom: 12),
                       child: ListTile(
-                        leading: const Icon(Icons.credit_card),
-                        title: Text(machine.name),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('TID: ${machine.tid}'),
-                            if (machine.location != null)
-                              Text('Location: ${machine.location}'),
-                            if (!canDelete)
-                              Padding(
+                        leading: const Icon(Icons.shopping_bag),
+                        title: Text(platform.name),
+                        subtitle: !canDelete
+                            ? Padding(
                                 padding: const EdgeInsets.only(top: 4),
                                 child: Text(
-                                  'Has transactions — cannot delete',
+                                  'Has sales data — cannot delete',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: AppColors.textTertiary,
                                     fontStyle: FontStyle.italic,
                                   ),
                                 ),
-                              ),
-                          ],
-                        ),
+                              )
+                            : null,
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             IconButton(
                               icon: const Icon(Icons.edit),
-                              onPressed: () => _showAddEditDialog(machine: machine),
+                              onPressed: () => _showAddEditDialog(platform: platform),
                               tooltip: 'Edit',
                             ),
                             IconButton(
@@ -305,10 +280,10 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
                                 Icons.delete,
                                 color: canDelete ? AppColors.error : AppColors.textTertiary,
                               ),
-                              onPressed: canDelete ? () => _deleteMachine(machine) : null,
+                              onPressed: canDelete ? () => _deletePlatform(platform) : null,
                               tooltip: canDelete
                                   ? 'Delete'
-                                  : 'Cannot delete: machine has transactions',
+                                  : 'Cannot delete: platform has sales data',
                             ),
                           ],
                         ),
@@ -319,4 +294,3 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
     );
   }
 }
-

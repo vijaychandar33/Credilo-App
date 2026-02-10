@@ -1,5 +1,46 @@
 enum CreditExpenseStatus { unpaid, paid }
 
+/// Payment method when marking a credit expense as paid (Supplier Dashboard only).
+enum CreditExpensePaymentMethod { cash, bank, others }
+
+extension CreditExpensePaymentMethodExt on CreditExpensePaymentMethod {
+  String get displayLabel {
+    switch (this) {
+      case CreditExpensePaymentMethod.cash:
+        return 'Paid via Cash';
+      case CreditExpensePaymentMethod.bank:
+        return 'Paid via Bank';
+      case CreditExpensePaymentMethod.others:
+        return 'Others';
+    }
+  }
+
+  String get value {
+    switch (this) {
+      case CreditExpensePaymentMethod.cash:
+        return 'cash';
+      case CreditExpensePaymentMethod.bank:
+        return 'bank';
+      case CreditExpensePaymentMethod.others:
+        return 'others';
+    }
+  }
+
+  static CreditExpensePaymentMethod? fromValue(String? v) {
+    if (v == null) return null;
+    switch (v.toLowerCase()) {
+      case 'cash':
+        return CreditExpensePaymentMethod.cash;
+      case 'bank':
+        return CreditExpensePaymentMethod.bank;
+      case 'others':
+        return CreditExpensePaymentMethod.others;
+      default:
+        return null;
+    }
+  }
+}
+
 class CreditExpense {
   final String? id;
   final DateTime date;
@@ -10,6 +51,8 @@ class CreditExpense {
   final double amount;
   final String? note;
   final CreditExpenseStatus status;
+  final String? paymentMethod; // 'cash' | 'bank' | 'others'
+  final String? paymentNote;   // Required when paymentMethod == 'others'
   final DateTime? createdAt;
   final Map<String, dynamic>? branchInfo; // For branch name/location
 
@@ -23,6 +66,8 @@ class CreditExpense {
     required this.amount,
     this.note,
     this.status = CreditExpenseStatus.unpaid,
+    this.paymentMethod,
+    this.paymentNote,
     this.createdAt,
     this.branchInfo,
   });
@@ -38,6 +83,8 @@ class CreditExpense {
       'amount': amount,
       'note': note,
       'status': status == CreditExpenseStatus.paid ? 'paid' : 'unpaid',
+      'payment_method': paymentMethod,
+      'payment_note': paymentNote,
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
     };
   }
@@ -49,7 +96,6 @@ class CreditExpense {
           ? json['branches'] as Map<String, dynamic>
           : null;
     }
-    
     return CreditExpense(
       id: json['id']?.toString(),
       date: DateTime.parse(json['date']),
@@ -62,14 +108,30 @@ class CreditExpense {
       status: json['status'] == 'paid' || json['status'] == true
           ? CreditExpenseStatus.paid
           : CreditExpenseStatus.unpaid,
+      paymentMethod: json['payment_method']?.toString(),
+      paymentNote: json['payment_note']?.toString(),
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'])
           : null,
       branchInfo: branchInfo,
     );
   }
-  
+
   String? get branchName => branchInfo?['name'] as String?;
   String? get branchLocation => branchInfo?['location'] as String?;
+
+  /// Human-readable payment info for display (e.g. "Paid via Cash" or "Paid via Others: Cheque").
+  String? get paymentDisplayText {
+    if (status != CreditExpenseStatus.paid) return null;
+    final method = CreditExpensePaymentMethodExt.fromValue(paymentMethod);
+    if (method == null) return null;
+    if (method == CreditExpensePaymentMethod.others) {
+      final n = paymentNote?.trim();
+      return n != null && n.isNotEmpty
+          ? 'Paid via Others: $n'
+          : 'Paid via Others';
+    }
+    return method.displayLabel;
+  }
 }
 

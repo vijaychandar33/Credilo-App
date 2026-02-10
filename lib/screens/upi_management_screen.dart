@@ -1,22 +1,22 @@
 import 'package:flutter/material.dart';
 import '../utils/app_colors.dart';
 import '../utils/error_message_helper.dart';
-import '../models/card_sale.dart';
+import '../models/upi_provider.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
 
-class CardMachineManagementScreen extends StatefulWidget {
-  const CardMachineManagementScreen({super.key});
+class UpiManagementScreen extends StatefulWidget {
+  const UpiManagementScreen({super.key});
 
   @override
-  State<CardMachineManagementScreen> createState() => _CardMachineManagementScreenState();
+  State<UpiManagementScreen> createState() => _UpiManagementScreenState();
 }
 
-class _CardMachineManagementScreenState extends State<CardMachineManagementScreen> {
+class _UpiManagementScreenState extends State<UpiManagementScreen> {
   final DatabaseService _dbService = DatabaseService();
   final AuthService _authService = AuthService();
-  List<CardMachine> _machines = [];
-  Set<String> _tidsWithSales = {}; // TIDs that have at least one card sale (cannot delete)
+  List<UpiProvider> _providers = [];
+  Set<String> _namesWithPayments = {}; // Provider names that have at least one qr_payment (cannot delete)
   bool _isLoading = false;
 
   @override
@@ -28,10 +28,10 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
       });
       return;
     }
-    _loadMachines();
+    _loadProviders();
   }
 
-  Future<void> _loadMachines() async {
+  Future<void> _loadProviders() async {
     setState(() {
       _isLoading = true;
     });
@@ -47,17 +47,17 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
         return;
       }
 
-      final machines = await _dbService.getCardMachines(branch.id);
-      final tidsWithSales = await _dbService.getTidsWithCardSales(branch.id);
+      final providers = await _dbService.getUpiProviders(branch.id);
+      final namesWithPayments = await _dbService.getProviderNamesWithQrPayments(branch.id);
       setState(() {
-        _machines = machines;
-        _tidsWithSales = tidsWithSales;
+        _providers = providers;
+        _namesWithPayments = namesWithPayments;
       });
     } catch (e) {
-      debugPrint('Error loading card machines: $e');
+      debugPrint('Error loading UPI providers: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Unable to load machines. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
+          SnackBar(content: Text('Unable to load UPI providers. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
         );
       }
     } finally {
@@ -67,30 +67,22 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
     }
   }
 
-  Future<void> _showAddEditDialog({CardMachine? machine}) async {
-    final nameController = TextEditingController(text: machine?.name ?? '');
-    final tidController = TextEditingController(text: machine?.tid ?? '');
-    final locationController = TextEditingController(text: machine?.location ?? '');
+  Future<void> _showAddEditDialog({UpiProvider? provider}) async {
+    final nameController = TextEditingController(text: provider?.name ?? '');
+    final locationController = TextEditingController(text: provider?.location ?? '');
 
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(machine == null ? 'Add Card Machine' : 'Edit Card Machine'),
+        title: Text(provider == null ? 'Add UPI Provider' : 'Edit UPI Provider'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: nameController,
               decoration: const InputDecoration(
-                labelText: 'Machine Name *',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: tidController,
-              decoration: const InputDecoration(
-                labelText: 'TID *',
+                labelText: 'Name *',
+                hintText: 'e.g. Paytm, PhonePe, HDFC Bank QR',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -111,16 +103,16 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
           ),
           ElevatedButton(
             onPressed: () async {
-              if (nameController.text.trim().isEmpty || tidController.text.trim().isEmpty) {
+              if (nameController.text.trim().isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Name and TID are required')),
+                  const SnackBar(content: Text('Name is required')),
                 );
                 return;
               }
 
               final navigator = Navigator.of(context);
               final messenger = ScaffoldMessenger.of(context);
-              
+
               try {
                 final branch = _authService.currentBranch;
                 if (branch == null) {
@@ -132,52 +124,60 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
                   return;
                 }
 
-                final updatedMachine = CardMachine(
-                  id: machine?.id,
-                  name: nameController.text.trim(),
-                  tid: tidController.text.trim(),
-                  location: locationController.text.trim().isEmpty
-                      ? null
-                      : locationController.text.trim(),
-                  branchId: branch.id,
-                );
+                final name = nameController.text.trim();
+                final location = locationController.text.trim().isEmpty
+                    ? null
+                    : locationController.text.trim();
 
-                await _dbService.saveCardMachine(updatedMachine);
+                if (provider == null) {
+                  await _dbService.saveUpiProvider(UpiProvider(
+                    branchId: branch.id,
+                    name: name,
+                    location: location,
+                  ));
+                } else {
+                  await _dbService.updateUpiProvider(UpiProvider(
+                    id: provider.id,
+                    branchId: branch.id,
+                    name: name,
+                    location: location,
+                  ));
+                }
                 if (!mounted) return;
                 navigator.pop();
-                _loadMachines();
+                _loadProviders();
                 messenger.showSnackBar(
                   SnackBar(
-                    content: Text(machine == null
-                        ? 'Machine added successfully'
-                        : 'Machine updated successfully'),
+                    content: Text(provider == null
+                        ? 'UPI provider added successfully'
+                        : 'UPI provider updated successfully'),
                   ),
                 );
               } catch (e) {
                 if (!mounted) return;
                 messenger.showSnackBar(
-                  SnackBar(content: Text('Unable to save machine. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
+                  SnackBar(content: Text('Unable to save. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
                 );
               }
             },
-            child: Text(machine == null ? 'Add' : 'Update'),
+            child: Text(provider == null ? 'Add' : 'Update'),
           ),
         ],
       ),
     );
   }
 
-  bool _canDeleteMachine(CardMachine machine) {
-    return !_tidsWithSales.contains(machine.tid);
+  bool _canDeleteProvider(UpiProvider provider) {
+    return !_namesWithPayments.contains(provider.name);
   }
 
-  Future<void> _deleteMachine(CardMachine machine) async {
-    if (machine.id == null) return;
-    if (!_canDeleteMachine(machine)) {
+  Future<void> _deleteProvider(UpiProvider provider) async {
+    if (provider.id == null) return;
+    if (!_canDeleteProvider(provider)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Cannot delete: this machine has transactions. Delete is only allowed when there are no card sales.'),
+            content: Text('Cannot delete: this provider has payment data. Delete is only allowed when there are no UPI payments for it.'),
           ),
         );
       }
@@ -187,8 +187,8 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Machine'),
-        content: Text('Are you sure you want to delete "${machine.name}"?'),
+        title: const Text('Delete UPI Provider'),
+        content: Text('Are you sure you want to delete "${provider.name}"?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -208,18 +208,18 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
 
     if (confirmed == true) {
       try {
-        await _dbService.deleteCardMachine(machine.id!);
-        _loadMachines();
+        await _dbService.deleteUpiProvider(provider.id!);
+        _loadProviders();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Machine deleted successfully')),
+            const SnackBar(content: Text('UPI provider deleted successfully')),
           );
         }
       } catch (e) {
         if (mounted) {
-          final msg = e.toString().toLowerCase().contains('transaction') || e.toString().toLowerCase().contains('cannot delete')
-              ? 'Cannot delete: this machine has transactions.'
-              : 'Unable to delete machine. ${ErrorMessageHelper.getUserFriendlyError(e)}';
+          final msg = e.toString().toLowerCase().contains('payment') || e.toString().toLowerCase().contains('cannot delete')
+              ? 'Cannot delete: this provider has payment data.'
+              : 'Unable to delete. ${ErrorMessageHelper.getUserFriendlyError(e)}';
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
         }
       }
@@ -230,59 +230,58 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Card Machine Management'),
+        title: const Text('UPI Management'),
         actions: [
           IconButton(
             icon: const Icon(Icons.add),
             onPressed: () => _showAddEditDialog(),
-            tooltip: 'Add Machine',
+            tooltip: 'Add UPI Provider',
           ),
         ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _machines.isEmpty
+          : _providers.isEmpty
               ? Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.credit_card, size: 64, color: AppColors.textTertiary),
+                      Icon(Icons.qr_code_2, size: 64, color: AppColors.textTertiary),
                       const SizedBox(height: 16),
                       const Text(
-                        'No card machines added',
+                        'No UPI providers added',
                         style: TextStyle(fontSize: 18, color: AppColors.textTertiary),
                       ),
                       const SizedBox(height: 8),
                       ElevatedButton.icon(
                         onPressed: () => _showAddEditDialog(),
                         icon: const Icon(Icons.add),
-                        label: const Text('Add First Machine'),
+                        label: const Text('Add First Provider'),
                       ),
                     ],
                   ),
                 )
               : ListView.builder(
                   padding: const EdgeInsets.all(16),
-                  itemCount: _machines.length,
+                  itemCount: _providers.length,
                   itemBuilder: (context, index) {
-                    final machine = _machines[index];
-                    final canDelete = _canDeleteMachine(machine);
+                    final provider = _providers[index];
+                    final canDelete = _canDeleteProvider(provider);
                     return Card(
                       margin: const EdgeInsets.only(bottom: 12),
                       child: ListTile(
-                        leading: const Icon(Icons.credit_card),
-                        title: Text(machine.name),
+                        leading: const Icon(Icons.qr_code_2),
+                        title: Text(provider.name),
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('TID: ${machine.tid}'),
-                            if (machine.location != null)
-                              Text('Location: ${machine.location}'),
+                            if (provider.location != null)
+                              Text('Location: ${provider.location}'),
                             if (!canDelete)
                               Padding(
                                 padding: const EdgeInsets.only(top: 4),
                                 child: Text(
-                                  'Has transactions — cannot delete',
+                                  'Has payment data — cannot delete',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: AppColors.textTertiary,
@@ -297,7 +296,7 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
                           children: [
                             IconButton(
                               icon: const Icon(Icons.edit),
-                              onPressed: () => _showAddEditDialog(machine: machine),
+                              onPressed: () => _showAddEditDialog(provider: provider),
                               tooltip: 'Edit',
                             ),
                             IconButton(
@@ -305,10 +304,10 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
                                 Icons.delete,
                                 color: canDelete ? AppColors.error : AppColors.textTertiary,
                               ),
-                              onPressed: canDelete ? () => _deleteMachine(machine) : null,
+                              onPressed: canDelete ? () => _deleteProvider(provider) : null,
                               tooltip: canDelete
                                   ? 'Delete'
-                                  : 'Cannot delete: machine has transactions',
+                                  : 'Cannot delete: provider has payment data',
                             ),
                           ],
                         ),
@@ -319,4 +318,3 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
     );
   }
 }
-

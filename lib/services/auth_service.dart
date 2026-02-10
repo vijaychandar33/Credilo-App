@@ -404,7 +404,7 @@ class AuthService {
     } else if (role == UserRole.manager) {
       return dateOnly == businessDateOnly || dateOnly == yesterday;
     } else if (role == UserRole.staff) {
-      return dateOnly == businessDateOnly; // Staff can only edit today
+      return dateOnly == businessDateOnly || dateOnly == yesterday; // Staff can edit today and yesterday
     }
     return false;
   }
@@ -468,6 +468,12 @@ class AuthService {
       debugPrint('Error checking business ownership: $e');
       _isBusinessOwnerCached = false;
     }
+  }
+
+  /// Same access as Card Machine Management: business owner and owner (not read-only).
+  /// Use for both Card Management and UPI Management screens.
+  bool canAccessCardOrUpiManagement() {
+    return canManageUsers();
   }
 
   // Check if user can manage users (business owners and owners, but not read-only)

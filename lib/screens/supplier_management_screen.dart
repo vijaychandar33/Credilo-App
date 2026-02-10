@@ -30,9 +30,16 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
   DateTime? _customStartDate;
   DateTime? _customEndDate;
   final Set<CreditExpenseStatus> _selectedStatuses = {};
-  double _totalFilteredAmount = 0.0;
   final DateFormat _dateFormat = DateFormat('d MMM yyyy');
   bool _isLoading = false;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -85,7 +92,6 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
         setState(() {
           _suppliers = [];
           _supplierTotals = {};
-          _totalFilteredAmount = 0.0;
         });
         return;
       }
@@ -106,7 +112,6 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
 
       // Calculate total unpaid for each supplier
       Map<String, double> totals = {};
-      double aggregate = 0.0;
       for (var supplier in suppliers) {
         final expenses = await _dbService.getCreditExpensesBySupplier(
           supplier.name,
@@ -118,21 +123,26 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
         );
         final filteredTotal = expenses.fold(0.0, (sum, e) => sum + e.amount);
         totals[supplier.name] = filteredTotal;
-        aggregate += filteredTotal;
       }
       
       List<Supplier> filteredSuppliers = suppliers;
       if (_selectedStatuses.length == 1 &&
           _selectedStatuses.contains(CreditExpenseStatus.unpaid)) {
-        filteredSuppliers = suppliers
+        filteredSuppliers = filteredSuppliers
             .where((supplier) => (totals[supplier.name] ?? 0) > 0)
             .toList();
+      }
+      // Filter by supplying branches: only show suppliers that supply to at least one selected branch
+      if (activeBranchIds.isNotEmpty) {
+        filteredSuppliers = filteredSuppliers.where((s) {
+          if (s.suppliesToAllBranches) return true;
+          return s.supplyingBranchIds!.any((id) => activeBranchIds.contains(id));
+        }).toList();
       }
 
       setState(() {
         _suppliers = filteredSuppliers;
         _supplierTotals = totals;
-        _totalFilteredAmount = aggregate;
       });
     } catch (e) {
       debugPrint('Error loading suppliers: $e');
@@ -151,7 +161,7 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
   Future<void> _addSupplier() async {
     final result = await showDialog<Supplier>(
       context: context,
-      builder: (context) => _AddSupplierDialog(),
+      builder: (context) => _AddSupplierDialog(branches: _availableBranches),
     );
 
     if (result != null) {
@@ -483,6 +493,12 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
     );
   }
 
+  List<Supplier> _getSuppliersForDisplay() {
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isEmpty) return _suppliers;
+    return _suppliers.where((s) => s.name.toLowerCase().contains(q)).toList();
+  }
+
   Widget _buildFiltersSection() {
     return Container(
       width: double.infinity,
@@ -491,6 +507,27 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              hintText: 'Search suppliers',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _searchQuery.trim().isEmpty
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _searchQuery = '');
+                      },
+                    ),
+              border: const OutlineInputBorder(),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+            onChanged: (value) => setState(() => _searchQuery = value),
+          ),
+          const SizedBox(height: 12),
           Row(
             children: [
               Expanded(flex: 2, child: _buildBranchSelectorField()),
@@ -520,7 +557,8 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
   }
 
   Widget _buildSupplierList() {
-    if (_suppliers.isEmpty) {
+    final displayList = _getSuppliersForDisplay();
+    if (displayList.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -528,12 +566,12 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
             Icon(Icons.business, size: 64, color: AppColors.textSecondary),
             const SizedBox(height: 16),
             Text(
-              'No suppliers yet',
+              _searchQuery.trim().isEmpty ? 'No suppliers yet' : 'No suppliers match your search',
               style: TextStyle(color: AppColors.textSecondary),
             ),
             const SizedBox(height: 8),
             Text(
-              'Add a supplier to get started',
+              _searchQuery.trim().isEmpty ? 'Add a supplier to get started' : 'Try a different search or clear filters',
               style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
             ),
           ],
@@ -543,9 +581,9 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
 
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-      itemCount: _suppliers.length,
+      itemCount: displayList.length,
       itemBuilder: (context, index) {
-        final supplier = _suppliers[index];
+        final supplier = displayList[index];
         final totalRemaining = _supplierTotals[supplier.name] ?? 0.0;
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
@@ -657,8 +695,15 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
 
   String _totalLabel() => 'Total Pending';
 
+  double _getDisplayTotalPending() {
+    final displayList = _getSuppliersForDisplay();
+    if (displayList.isEmpty) return 0.0;
+    return displayList.fold(0.0, (sum, s) => sum + (_supplierTotals[s.name] ?? 0.0));
+  }
+
   Widget _buildTotalFooter() {
     final theme = Theme.of(context);
+    final displayTotal = _getDisplayTotalPending();
     return SafeArea(
       top: false,
       minimum: const EdgeInsets.only(bottom: 12),
@@ -686,11 +731,11 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
             ),
             Text(
-              CurrencyFormatter.format(_totalFilteredAmount),
+              CurrencyFormatter.format(displayTotal),
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
-                color: _totalFilteredAmount > 0 ? AppColors.warning : AppColors.success,
+                color: displayTotal > 0 ? AppColors.warning : AppColors.success,
               ),
             ),
           ],
@@ -734,6 +779,10 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
 }
 
 class _AddSupplierDialog extends StatefulWidget {
+  final List<Branch> branches;
+
+  const _AddSupplierDialog({required this.branches});
+
   @override
   State<_AddSupplierDialog> createState() => _AddSupplierDialogState();
 }
@@ -744,6 +793,7 @@ class _AddSupplierDialogState extends State<_AddSupplierDialog> {
   final _contactController = TextEditingController();
   final _addressController = TextEditingController();
   final _authService = AuthService();
+  Set<String> _supplyingToBranchIds = {};
 
   @override
   void dispose() {
@@ -751,6 +801,107 @@ class _AddSupplierDialogState extends State<_AddSupplierDialog> {
     _contactController.dispose();
     _addressController.dispose();
     super.dispose();
+  }
+
+  Future<void> _showSupplyingToSheet() async {
+    if (widget.branches.isEmpty) return;
+    final current = Set<String>.from(_supplyingToBranchIds);
+    final result = await showModalBottomSheet<Set<String>>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        Set<String> temp = Set<String>.from(current);
+        return SafeArea(
+          child: SizedBox(
+            height: MediaQuery.of(context).size.height * 0.5,
+            child: StatefulBuilder(
+              builder: (context, setModalState) {
+                final allSelected = temp.length == widget.branches.length;
+                return Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      const Text(
+                        'Supplying to',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 8),
+                      CheckboxListTile(
+                        title: const Text('All branches'),
+                        value: allSelected,
+                        onChanged: (v) {
+                          setModalState(() {
+                            temp = v == true
+                                ? widget.branches.map((b) => b.id).toSet()
+                                : {};
+                          });
+                        },
+                      ),
+                      const Divider(),
+                      Expanded(
+                        child: ListView(
+                          children: widget.branches.map((b) {
+                            return CheckboxListTile(
+                              title: Text(b.name),
+                              subtitle: b.location.isNotEmpty ? Text(b.location) : null,
+                              value: temp.contains(b.id),
+                              onChanged: (v) {
+                                setModalState(() {
+                                  if (v == true) {
+                                    temp.add(b.id);
+                                  } else {
+                                    temp.remove(b.id);
+                                  }
+                                });
+                              },
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.pop(context, current),
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: () => Navigator.pop(context, temp),
+                              child: const Text('Apply'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+    if (result != null) {
+      setState(() => _supplyingToBranchIds = result);
+    }
+  }
+
+  String _supplyingToLabel() {
+    if (_supplyingToBranchIds.isEmpty) return 'All branches';
+    if (_supplyingToBranchIds.length == widget.branches.length) return 'All branches';
+    if (_supplyingToBranchIds.length == 1) {
+      try {
+        final b = widget.branches.firstWhere((b) => b.id == _supplyingToBranchIds.first);
+        return b.name;
+      } catch (_) {
+        return '1 branch';
+      }
+    }
+    return '${_supplyingToBranchIds.length} branches';
   }
 
   @override
@@ -776,6 +927,29 @@ class _AddSupplierDialogState extends State<_AddSupplierDialog> {
                   return null;
                 },
                 autofocus: true,
+              ),
+              const SizedBox(height: 16),
+              GestureDetector(
+                onTap: widget.branches.isEmpty ? null : _showSupplyingToSheet,
+                child: InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: 'Supplying to',
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    suffixIcon: widget.branches.isNotEmpty
+                        ? const Icon(Icons.arrow_drop_down)
+                        : null,
+                  ),
+                  child: Text(
+                    widget.branches.isEmpty ? 'No branches' : _supplyingToLabel(),
+                    style: TextStyle(
+                      color: widget.branches.isEmpty
+                          ? AppColors.textSecondary
+                          : AppColors.textPrimary,
+                    ),
+                  ),
+                ),
               ),
               const SizedBox(height: 16),
               TextFormField(
@@ -823,6 +997,9 @@ class _AddSupplierDialogState extends State<_AddSupplierDialog> {
                     ? null
                     : _addressController.text.trim(),
                 businessId: branch.businessId,
+                supplyingBranchIds: _supplyingToBranchIds.isEmpty
+                    ? null
+                    : _supplyingToBranchIds.toList(),
               );
               Navigator.pop(context, supplier);
             }

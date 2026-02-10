@@ -1,5 +1,5 @@
 -- credilo - Database Schema (reference)
--- Matches production. Migrations are applied via Supabase; this file is the single source of truth.
+-- Single source of truth. RLS and triggers as documented. Apply via Supabase dashboard or CLI as needed.
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -283,8 +283,10 @@ CREATE TABLE suppliers (
   name TEXT NOT NULL,
   contact TEXT,
   address TEXT,
+  supplying_branch_ids UUID[] DEFAULT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+COMMENT ON COLUMN public.suppliers.supplying_branch_ids IS 'Branch IDs this supplier supplies to. NULL or empty = supplies to all branches.';
 
 -- Credit expenses
 CREATE TABLE credit_expenses (
@@ -297,8 +299,11 @@ CREATE TABLE credit_expenses (
   amount NUMERIC(12,2) NOT NULL,
   note TEXT,
   status TEXT DEFAULT 'unpaid' CHECK (status IN ('paid', 'unpaid')),
+  payment_method TEXT,
+  payment_note TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+-- payment_method: 'cash' | 'bank' | 'others' (Supplier Dashboard when marking paid). payment_note: required when payment_method = 'others'.
 
 -- Cash counts
 CREATE TABLE cash_counts (
@@ -335,6 +340,24 @@ CREATE TABLE card_machines (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Trigger: prevent deleting a card machine that has any card_sales (same branch_id + tid).
+CREATE OR REPLACE FUNCTION public.check_card_machine_can_delete()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.card_sales WHERE branch_id = OLD.branch_id AND tid = OLD.tid LIMIT 1) THEN
+    RAISE EXCEPTION 'Cannot delete card machine: it has transactions. Delete is only allowed when there are no card sales for this machine.'
+      USING ERRCODE = 'restrict_violation';
+  END IF;
+  RETURN OLD;
+END;
+$$;
+COMMENT ON FUNCTION public.check_card_machine_can_delete() IS 'Blocks DELETE on card_machines when card_sales exist for same (branch_id, tid).';
+DROP TRIGGER IF EXISTS prevent_card_machine_delete_with_sales ON public.card_machines;
+CREATE TRIGGER prevent_card_machine_delete_with_sales
+  BEFORE DELETE ON public.card_machines FOR EACH ROW
+  EXECUTE FUNCTION public.check_card_machine_can_delete();
+-- card_machines RLS: SELECT for branch users; INSERT/UPDATE/DELETE for business_owner + owner only (policies: Owners can read/insert/update/delete card machines).
+
 -- Online sales
 CREATE TABLE online_sales (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -349,6 +372,41 @@ CREATE TABLE online_sales (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Online sales platforms (branch-specific, like card_machines / upi_providers). Name only. Seed: Swiggy, Zomato, Own Delivery (no Others).
+CREATE TABLE online_sales_platforms (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(branch_id, name)
+);
+CREATE INDEX idx_online_sales_platforms_branch ON online_sales_platforms(branch_id);
+COMMENT ON TABLE public.online_sales_platforms IS 'Branch-specific online sales platform names. online_sales.platform matches name.';
+CREATE OR REPLACE FUNCTION public.check_online_sales_platform_can_delete()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.online_sales WHERE branch_id = OLD.branch_id AND platform = OLD.name LIMIT 1) THEN
+    RAISE EXCEPTION 'Cannot delete platform: it has sales data.' USING ERRCODE = 'restrict_violation';
+  END IF;
+  RETURN OLD;
+END;
+$$;
+DROP TRIGGER IF EXISTS prevent_online_sales_platform_delete_with_sales ON public.online_sales_platforms;
+CREATE TRIGGER prevent_online_sales_platform_delete_with_sales
+  BEFORE DELETE ON public.online_sales_platforms FOR EACH ROW
+  EXECUTE FUNCTION public.check_online_sales_platform_can_delete();
+
+ALTER TABLE public.online_sales_platforms ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "online_sales_platforms_select_for_branch" ON public.online_sales_platforms FOR SELECT
+  USING (branch_id IN (SELECT branch_id FROM public.branch_users WHERE user_id = auth.uid()));
+CREATE POLICY "online_sales_platforms_insert_for_owners" ON public.online_sales_platforms FOR INSERT
+  WITH CHECK (branch_id IN (SELECT branch_id FROM public.branch_users WHERE user_id = auth.uid() AND role IN ('business_owner', 'owner')));
+CREATE POLICY "online_sales_platforms_update_for_owners" ON public.online_sales_platforms FOR UPDATE
+  USING (branch_id IN (SELECT branch_id FROM public.branch_users WHERE user_id = auth.uid() AND role IN ('business_owner', 'owner')))
+  WITH CHECK (branch_id IN (SELECT branch_id FROM public.branch_users WHERE user_id = auth.uid() AND role IN ('business_owner', 'owner')));
+CREATE POLICY "online_sales_platforms_delete_for_owners" ON public.online_sales_platforms FOR DELETE
+  USING (branch_id IN (SELECT branch_id FROM public.branch_users WHERE user_id = auth.uid() AND role IN ('business_owner', 'owner')));
+
 -- QR payments
 CREATE TABLE qr_payments (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -362,6 +420,44 @@ CREATE TABLE qr_payments (
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- UPI providers (branch-specific, like card_machines). Name + optional location. Seed: Paytm, PhonePe, Google Pay.
+CREATE TABLE upi_providers (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  location TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(branch_id, name)
+);
+CREATE INDEX idx_upi_providers_branch ON upi_providers(branch_id);
+COMMENT ON TABLE public.upi_providers IS 'Branch-specific UPI/QR payment provider names. qr_payments.provider matches name.';
+
+CREATE OR REPLACE FUNCTION public.check_upi_provider_can_delete()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.qr_payments WHERE branch_id = OLD.branch_id AND provider = OLD.name LIMIT 1) THEN
+    RAISE EXCEPTION 'Cannot delete UPI provider: it has payment data.' USING ERRCODE = 'restrict_violation';
+  END IF;
+  RETURN OLD;
+END;
+$$;
+DROP TRIGGER IF EXISTS prevent_upi_provider_delete_with_payments ON public.upi_providers;
+CREATE TRIGGER prevent_upi_provider_delete_with_payments
+  BEFORE DELETE ON public.upi_providers FOR EACH ROW
+  EXECUTE FUNCTION public.check_upi_provider_can_delete();
+
+ALTER TABLE public.upi_providers ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "upi_providers_select_for_branch" ON public.upi_providers FOR SELECT
+  USING (branch_id IN (SELECT branch_id FROM public.branch_users WHERE user_id = auth.uid()));
+-- Write access (add/edit/delete UPI providers): business_owner and owner only (same as Card Management).
+CREATE POLICY "upi_providers_insert_for_owners" ON public.upi_providers FOR INSERT
+  WITH CHECK (branch_id IN (SELECT branch_id FROM public.branch_users WHERE user_id = auth.uid() AND role IN ('business_owner', 'owner')));
+CREATE POLICY "upi_providers_update_for_owners" ON public.upi_providers FOR UPDATE
+  USING (branch_id IN (SELECT branch_id FROM public.branch_users WHERE user_id = auth.uid() AND role IN ('business_owner', 'owner')))
+  WITH CHECK (branch_id IN (SELECT branch_id FROM public.branch_users WHERE user_id = auth.uid() AND role IN ('business_owner', 'owner')));
+CREATE POLICY "upi_providers_delete_for_owners" ON public.upi_providers FOR DELETE
+  USING (branch_id IN (SELECT branch_id FROM public.branch_users WHERE user_id = auth.uid() AND role IN ('business_owner', 'owner')));
 
 -- Daily QR payment totals (stores calculated total per day per branch)
 CREATE TABLE daily_qr_totals (
