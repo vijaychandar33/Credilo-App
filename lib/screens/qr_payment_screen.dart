@@ -40,19 +40,22 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
   @override
   void initState() {
     super.initState();
-    _loadClosingCycleSettings();
     _loadData();
   }
 
   Future<void> _loadClosingCycleSettings() async {
-    final useCustom = await ClosingCycleService.isCustomClosingEnabled();
-    final hour = await ClosingCycleService.getClosingHour();
-    final minute = await ClosingCycleService.getClosingMinute();
-    setState(() {
-      _useCustomClosing = useCustom;
-      _closingHour = hour;
-      _closingMinute = minute;
-    });
+    final branchId = _authService.currentBranch?.id ?? '';
+    if (branchId.isEmpty) return;
+    final useCustom = await ClosingCycleService.isCustomClosingEnabled(branchId);
+    final hour = await ClosingCycleService.getClosingHour(branchId);
+    final minute = await ClosingCycleService.getClosingMinute(branchId);
+    if (mounted) {
+      setState(() {
+        _useCustomClosing = useCustom;
+        _closingHour = hour;
+        _closingMinute = minute;
+      });
+    }
   }
 
   Future<void> _loadData() async {
@@ -61,6 +64,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
     });
 
     try {
+      await _loadClosingCycleSettings();
       final branch = _authService.currentBranch;
       if (branch == null) {
         setState(() {

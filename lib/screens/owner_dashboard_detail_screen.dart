@@ -14,6 +14,7 @@ enum DetailScreenType {
   cashExpenses,
   onlineExpenses,
   creditExpenses,
+  fixedExpenses,
   totalSales,
   totalExpenses,
   totalProfit,
@@ -167,6 +168,26 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
                   'note': expense.note,
                   'status': expense.status.toString(),
                   'type': 'credit_expense',
+                });
+                total += expense.amount;
+              }
+              break;
+
+            case DetailScreenType.fixedExpenses:
+              final fixedExpenses = await _dbService.getFixedExpenses(
+                branch.id,
+                startDate: currentDate,
+                endDate: currentDate,
+              );
+              for (var expense in fixedExpenses) {
+                items.add({
+                  'date': currentDate,
+                  'branch': branch.name,
+                  'branchLocation': branch.location,
+                  'category': expense.category,
+                  'amount': expense.amount,
+                  'note': expense.note,
+                  'type': 'fixed_expense',
                 });
                 total += expense.amount;
               }
@@ -420,6 +441,28 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
         if (item['status'] != null) {
           final status = item['status'].toString().replaceAll('CreditExpenseStatus.', '');
           fields.add(_buildField('Status', status));
+        }
+        if (item['note'] != null && item['note'].toString().isNotEmpty) {
+          fields.add(_buildField('Note', item['note']));
+        }
+        break;
+      case 'fixed_expense':
+        if (item['category'] != null) {
+          String category = item['category'];
+          // Format category display name
+          String displayCategory = category;
+          switch (category) {
+            case 'rent':
+              displayCategory = 'Rent';
+              break;
+            case 'electricity':
+              displayCategory = 'Electricity';
+              break;
+            case 'other':
+              displayCategory = 'Other';
+              break;
+          }
+          fields.add(_buildField('Category', displayCategory));
         }
         if (item['note'] != null && item['note'].toString().isNotEmpty) {
           fields.add(_buildField('Note', item['note']));

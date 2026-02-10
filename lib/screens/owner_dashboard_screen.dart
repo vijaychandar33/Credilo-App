@@ -144,13 +144,14 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                                 setModalState(() {
                                   tempSelection = branches.map((b) => b.id).toSet();
                                 });
+                                Navigator.pop(context, tempSelection);
                               },
                               child: const Text('Reset'),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
-                            child: ElevatedButton(
+                            child: OutlinedButton(
                               onPressed: () {
                                 if (tempSelection.isEmpty) {
                                   tempSelection = branches.map((b) => b.id).toSet();
@@ -215,14 +216,19 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
   }
 
   Future<DateRangeSelection> _getDateRange() async {
+    final branchId = _authService.currentBranch?.id;
     final result = await resolveDateRange(
       _selectedRangeOption,
       customStartDate: _selectedStartDate,
       customEndDate: _selectedEndDate,
+      branchId: branchId,
     );
     // If null (all time), return today as default for owner dashboard
     if (result == null) {
-      final businessDate = await ClosingCycleService.getBusinessDate();
+      final branchId = _authService.currentBranch?.id ?? '';
+      final businessDate = branchId.isEmpty
+          ? DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day)
+          : await ClosingCycleService.getBusinessDate(branchId);
       return DateRangeSelection(
         startDate: DateTime(businessDate.year, businessDate.month, businessDate.day),
         endDate: DateTime(businessDate.year, businessDate.month, businessDate.day),
@@ -246,11 +252,12 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
             'totalCashSales': 0.0,
             'totalCardSales': 0.0,
             'totalOnlineSales': 0.0,
-            'totalExpenses': 0.0,
-            'totalCashExpenses': 0.0,
-            'totalOnlineExpenses': 0.0,
-            'totalCreditExpenses': 0.0,
-            'totalQrPayments': 0.0,
+          'totalExpenses': 0.0,
+          'totalCashExpenses': 0.0,
+          'totalOnlineExpenses': 0.0,
+          'totalCreditExpenses': 0.0,
+          'totalFixedExpenses': 0.0,
+          'totalQrPayments': 0.0,
             'totalDues': 0.0,
             'totalReceivables': 0.0,
             'totalPayables': 0.0,
@@ -265,6 +272,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
       double totalCashExpenses = 0.0;
       double totalOnlineExpenses = 0.0;
       double totalCreditExpenses = 0.0;
+      double totalFixedExpenses = 0.0;
       double totalCardSales = 0.0;
       double totalOnlineSales = 0.0;
       double totalQrPayments = 0.0;
@@ -290,7 +298,16 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
           final branchCreditExpenses = creditExpenses.fold(0.0, (sum, e) => sum + e.amount);
           totalCreditExpenses += branchCreditExpenses;
           
-          totalExpenses += branchExpenses + branchOnlineExpenses + branchCreditExpenses;
+          // Fixed expenses for this date
+          final fixedExpenses = await _dbService.getFixedExpenses(
+            branch.id,
+            startDate: currentDate,
+            endDate: currentDate,
+          );
+          final branchFixedExpenses = fixedExpenses.fold(0.0, (sum, e) => sum + e.amount);
+          totalFixedExpenses += branchFixedExpenses;
+          
+          totalExpenses += branchExpenses + branchOnlineExpenses + branchCreditExpenses + branchFixedExpenses;
 
           final cardSales = await _dbService.getCardSales(currentDate, branch.id);
           final branchCardSales = cardSales.fold(0.0, (sum, s) => sum + s.amount);
@@ -350,6 +367,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
           'totalCashExpenses': totalCashExpenses,
           'totalOnlineExpenses': totalOnlineExpenses,
           'totalCreditExpenses': totalCreditExpenses,
+          'totalFixedExpenses': totalFixedExpenses,
           'totalQrPayments': totalQrPayments,
           'totalDues': totalDues,
           'totalReceivables': totalReceivables,
@@ -559,6 +577,14 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
             Icons.credit_card_outlined,
             AppColors.textPrimary,
             () => _navigateToDetail(DetailScreenType.creditExpenses, 'Total Credit Expenses'),
+          ),
+          const SizedBox(height: 12),
+          _buildTappableSummaryCard(
+            'Total Fixed Expenses',
+            CurrencyFormatter.format(data['totalFixedExpenses'] ?? 0.0),
+            Icons.receipt_long,
+            AppColors.textPrimary,
+            () => _navigateToDetail(DetailScreenType.fixedExpenses, 'Total Fixed Expenses'),
           ),
           const SizedBox(height: 12),
           _buildTappableTotalCard(

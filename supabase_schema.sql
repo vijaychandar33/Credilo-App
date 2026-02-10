@@ -1,5 +1,5 @@
--- credilo - Database Schema
--- Copy and paste this entire file into Supabase SQL Editor
+-- credilo - Database Schema (reference)
+-- Matches production. Migrations are applied via Supabase; this file is the single source of truth.
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -73,6 +73,7 @@ CREATE OR REPLACE FUNCTION check_user_has_pending_invitation(p_business_id uuid)
 RETURNS boolean
 LANGUAGE plpgsql
 STABLE SECURITY DEFINER
+SET search_path TO 'public'
 AS $$
 DECLARE
   v_user_email text;
@@ -105,6 +106,71 @@ FOR SELECT
 USING (
   auth.uid() IS NOT NULL
   AND check_user_has_pending_invitation(branches.business_id)
+);
+
+-- RLS Policy: Allow users to update branches for their businesses (name, location, status)
+CREATE POLICY "Users can update branches for their businesses"
+ON branches
+FOR UPDATE
+USING (check_user_has_branch_access(branches.business_id, auth.uid()))
+WITH CHECK (check_user_has_branch_access(branches.business_id, auth.uid()));
+
+-- RLS Policy: Allow users to insert branches for their businesses (e.g. business owners adding branches)
+CREATE POLICY "Users can insert branches for their businesses"
+ON branches
+FOR INSERT
+WITH CHECK (check_user_has_branch_access(branches.business_id, auth.uid()));
+
+-- Branch visibility (what to show on home screen per branch; UI only, default visible)
+CREATE TABLE branch_visibility (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  item_key TEXT NOT NULL,
+  visible BOOLEAN NOT NULL DEFAULT true,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(branch_id, item_key)
+);
+CREATE INDEX idx_branch_visibility_branch_id ON branch_visibility(branch_id);
+ALTER TABLE branch_visibility ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can read branch_visibility for their branches" ON branch_visibility FOR SELECT USING (
+  EXISTS (SELECT 1 FROM branch_users WHERE branch_users.branch_id = branch_visibility.branch_id AND branch_users.user_id = auth.uid())
+);
+CREATE POLICY "Users can insert branch_visibility for their branches" ON branch_visibility FOR INSERT WITH CHECK (
+  EXISTS (SELECT 1 FROM branch_users WHERE branch_users.branch_id = branch_visibility.branch_id AND branch_users.user_id = auth.uid())
+);
+CREATE POLICY "Users can update branch_visibility for their branches" ON branch_visibility FOR UPDATE USING (
+  EXISTS (SELECT 1 FROM branch_users WHERE branch_users.branch_id = branch_visibility.branch_id AND branch_users.user_id = auth.uid())
+) WITH CHECK (
+  EXISTS (SELECT 1 FROM branch_users WHERE branch_users.branch_id = branch_visibility.branch_id AND branch_users.user_id = auth.uid())
+);
+CREATE POLICY "Users can delete branch_visibility for their branches" ON branch_visibility FOR DELETE USING (
+  EXISTS (SELECT 1 FROM branch_users WHERE branch_users.branch_id = branch_visibility.branch_id AND branch_users.user_id = auth.uid())
+);
+
+-- Branch closing cycle (per-branch custom closing time; replaces device-level setting)
+CREATE TABLE branch_closing_cycle (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  use_custom_closing BOOLEAN NOT NULL DEFAULT false,
+  closing_hour INT NOT NULL DEFAULT 1,
+  closing_minute INT NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(branch_id),
+  CHECK (closing_hour >= 0 AND closing_hour <= 23),
+  CHECK (closing_minute >= 0 AND closing_minute <= 59)
+);
+CREATE INDEX idx_branch_closing_cycle_branch_id ON branch_closing_cycle(branch_id);
+ALTER TABLE branch_closing_cycle ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can read branch_closing_cycle for their branches" ON branch_closing_cycle FOR SELECT USING (
+  EXISTS (SELECT 1 FROM branch_users WHERE branch_users.branch_id = branch_closing_cycle.branch_id AND branch_users.user_id = auth.uid())
+);
+CREATE POLICY "Users can insert branch_closing_cycle for their branches" ON branch_closing_cycle FOR INSERT WITH CHECK (
+  EXISTS (SELECT 1 FROM branch_users WHERE branch_users.branch_id = branch_closing_cycle.branch_id AND branch_users.user_id = auth.uid())
+);
+CREATE POLICY "Users can update branch_closing_cycle for their branches" ON branch_closing_cycle FOR UPDATE USING (
+  EXISTS (SELECT 1 FROM branch_users WHERE branch_users.branch_id = branch_closing_cycle.branch_id AND branch_users.user_id = auth.uid())
+) WITH CHECK (
+  EXISTS (SELECT 1 FROM branch_users WHERE branch_users.branch_id = branch_closing_cycle.branch_id AND branch_users.user_id = auth.uid())
 );
 
 -- Branch users (junction table for user-branch-role)
@@ -419,6 +485,18 @@ CREATE TABLE safe_transactions (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Fixed expenses (branch-specific recurring expenses like rent, electricity, etc.)
+CREATE TABLE fixed_expenses (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  date DATE NOT NULL,
+  user_id UUID REFERENCES users(id),
+  branch_id UUID REFERENCES branches(id) ON DELETE CASCADE,
+  category TEXT NOT NULL DEFAULT 'other',
+  amount NUMERIC(12,2) NOT NULL,
+  note TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Enable Row Level Security on safe_balances
 ALTER TABLE safe_balances ENABLE ROW LEVEL SECURITY;
 
@@ -505,11 +583,71 @@ USING (
   )
 );
 
+-- Enable Row Level Security on fixed_expenses
+ALTER TABLE fixed_expenses ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policy: Users can read fixed_expenses for branches they have access to
+CREATE POLICY "Users can read fixed_expenses for their branches"
+ON fixed_expenses
+FOR SELECT
+USING (
+  EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE branch_users.branch_id = fixed_expenses.branch_id
+    AND branch_users.user_id = auth.uid()
+  )
+);
+
+-- RLS Policy: Users can insert fixed_expenses for branches they have access to
+CREATE POLICY "Users can insert fixed_expenses for their branches"
+ON fixed_expenses
+FOR INSERT
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE branch_users.branch_id = fixed_expenses.branch_id
+    AND branch_users.user_id = auth.uid()
+  )
+);
+
+-- RLS Policy: Users can update fixed_expenses for branches they have access to
+CREATE POLICY "Users can update fixed_expenses for their branches"
+ON fixed_expenses
+FOR UPDATE
+USING (
+  EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE branch_users.branch_id = fixed_expenses.branch_id
+    AND branch_users.user_id = auth.uid()
+  )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE branch_users.branch_id = fixed_expenses.branch_id
+    AND branch_users.user_id = auth.uid()
+  )
+);
+
+-- RLS Policy: Only owners/managers can delete fixed_expenses
+CREATE POLICY "Owners can delete fixed_expenses"
+ON fixed_expenses
+FOR DELETE
+USING (
+  EXISTS (
+    SELECT 1 FROM branch_users
+    WHERE branch_users.branch_id = fixed_expenses.branch_id
+    AND branch_users.user_id = auth.uid()
+    AND branch_users.role IN ('business_owner', 'owner', 'manager')
+  )
+);
+
 -- Function to update safe balance when a transaction is created
 CREATE OR REPLACE FUNCTION update_safe_balance()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path TO 'public'
 AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
@@ -576,6 +714,8 @@ CREATE INDEX idx_safe_balances_branch ON safe_balances(branch_id);
 CREATE INDEX idx_safe_transactions_date ON safe_transactions(date);
 CREATE INDEX idx_safe_transactions_branch ON safe_transactions(branch_id);
 CREATE INDEX idx_safe_transactions_type ON safe_transactions(type);
+CREATE INDEX idx_fixed_expenses_branch_date ON fixed_expenses(branch_id, date DESC);
+CREATE INDEX idx_fixed_expenses_date ON fixed_expenses(date DESC);
 CREATE INDEX idx_suppliers_business ON suppliers(business_id);
 CREATE INDEX idx_branch_users_business ON branch_users(business_id);
 CREATE INDEX idx_pending_users_email ON pending_users(email);

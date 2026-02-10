@@ -1,110 +1,176 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/branch_closing_cycle.dart';
+import '../services/database_service.dart';
 
+/// Per-branch custom closing cycle. Online-first: Supabase is source of truth.
+/// SharedPreferences is used only as a cache for faster access (return cache first, refresh from Supabase in background).
 class ClosingCycleService {
-  static const String _keyUseCustomClosing = 'use_custom_closing_time';
-  static const String _keyClosingHour = 'closing_hour';
-  static const String _keyClosingMinute = 'closing_minute';
-
-  // Default closing time is 1:00 AM (when custom closing is enabled)
   static const int defaultClosingHour = 1;
   static const int defaultClosingMinute = 0;
 
-  /// Get whether custom closing time is enabled
-  static Future<bool> isCustomClosingEnabled() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_keyUseCustomClosing) ?? false;
+  static const _cachePrefix = 'branch_closing_cycle_';
+  static final _db = DatabaseService();
+
+  static Future<SharedPreferences> _prefs() => SharedPreferences.getInstance();
+
+  static Future<BranchClosingCycle?> _readCache(String branchId) async {
+    if (branchId.isEmpty) return null;
+    try {
+      final prefs = await _prefs();
+      final json = prefs.getString('$_cachePrefix$branchId');
+      if (json == null) return null;
+      final map = jsonDecode(json) as Map<String, dynamic>;
+      return BranchClosingCycle(
+        branchId: branchId,
+        useCustomClosing: map['use_custom_closing'] as bool? ?? false,
+        closingHour: (map['closing_hour'] as num?)?.toInt() ?? defaultClosingHour,
+        closingMinute: (map['closing_minute'] as num?)?.toInt() ?? defaultClosingMinute,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
-  /// Set whether custom closing time is enabled
-  /// When enabling, sets default closing time to 1:00 AM if not already set
-  static Future<void> setCustomClosingEnabled(bool enabled) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyUseCustomClosing, enabled);
-    
-    // When enabling, set default to 1:00 AM if not already set
-    if (enabled) {
-      final currentHour = prefs.getInt(_keyClosingHour);
-      
-      // If closing time is 12:00 AM (hour 0) or not set, set to 1:00 AM
-      if (currentHour == null || currentHour == 0) {
-        await prefs.setInt(_keyClosingHour, defaultClosingHour);
-        await prefs.setInt(_keyClosingMinute, defaultClosingMinute);
+  static Future<void> _writeCache(String branchId, BranchClosingCycle cycle) async {
+    try {
+      final prefs = await _prefs();
+      await prefs.setString('$_cachePrefix$branchId', jsonEncode({
+        'use_custom_closing': cycle.useCustomClosing,
+        'closing_hour': cycle.closingHour,
+        'closing_minute': cycle.closingMinute,
+      }));
+    } catch (_) {}
+  }
+
+  /// Refresh cache from Supabase in background (fire-and-forget).
+  static void _refreshFromSupabase(String branchId) {
+    Future(() async {
+      try {
+        final cycle = await _db.getBranchClosingCycleOrDefault(branchId);
+        await _writeCache(branchId, cycle);
+      } catch (e) {
+        debugPrint('ClosingCycleService background refresh error: $e');
+      }
+    });
+  }
+
+  /// Get full closing cycle. Returns cache immediately for speed if present, then refreshes from Supabase in background.
+  /// If no cache, fetches from Supabase and caches. Online-first.
+  static Future<BranchClosingCycle> getBranchClosingCycleOrDefault(String branchId) async {
+    if (branchId.isEmpty) return BranchClosingCycle(branchId: '');
+
+    final prefs = await _prefs();
+    final hasCache = prefs.containsKey('$_cachePrefix$branchId');
+
+    if (hasCache) {
+      final cached = await _readCache(branchId);
+      if (cached != null) {
+        _refreshFromSupabase(branchId);
+        return cached;
       }
     }
+
+    final cycle = await _db.getBranchClosingCycleOrDefault(branchId);
+    await _writeCache(branchId, cycle);
+    return cycle;
   }
 
-  /// Get the closing hour (0-23)
-  static Future<int> getClosingHour() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getInt(_keyClosingHour) ?? defaultClosingHour;
+  /// Get whether custom closing time is enabled for this branch.
+  static Future<bool> isCustomClosingEnabled(String branchId) async {
+    if (branchId.isEmpty) return false;
+    final cycle = await getBranchClosingCycleOrDefault(branchId);
+    return cycle.useCustomClosing;
   }
 
-  /// Get the closing minute (0-59)
-  static Future<int> getClosingMinute() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getInt(_keyClosingMinute) ?? defaultClosingMinute;
+  /// Set whether custom closing time is enabled for this branch. Online-only: Supabase first, then update cache.
+  static Future<void> setCustomClosingEnabled(String branchId, bool enabled) async {
+    if (branchId.isEmpty) return;
+    final cycle = await getBranchClosingCycleOrDefault(branchId);
+    var hour = cycle.closingHour;
+    var minute = cycle.closingMinute;
+    if (enabled && (hour == 0)) {
+      hour = defaultClosingHour;
+      minute = defaultClosingMinute;
+    }
+    final updated = BranchClosingCycle(
+      branchId: branchId,
+      useCustomClosing: enabled,
+      closingHour: hour,
+      closingMinute: minute,
+    );
+    await _db.upsertBranchClosingCycle(updated);
+    await _writeCache(branchId, updated);
   }
 
-  /// Set the closing time
-  static Future<void> setClosingTime(int hour, int minute) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_keyClosingHour, hour);
-    await prefs.setInt(_keyClosingMinute, minute);
+  /// Get the closing hour (0-23) for this branch.
+  static Future<int> getClosingHour(String branchId) async {
+    if (branchId.isEmpty) return defaultClosingHour;
+    final cycle = await getBranchClosingCycleOrDefault(branchId);
+    return cycle.closingHour == 0 ? defaultClosingHour : cycle.closingHour;
   }
 
-  /// Get the business date for a given DateTime based on the closing cycle
-  /// 
-  /// If custom closing is enabled and the current time is before the closing time,
-  /// it returns the previous day's date. Otherwise, it returns the current date.
-  /// 
-  /// Example: If closing time is 6 AM and current time is 3 AM, it returns yesterday's date.
-  static Future<DateTime> getBusinessDate([DateTime? dateTime]) async {
+  /// Get the closing minute (0-59) for this branch.
+  static Future<int> getClosingMinute(String branchId) async {
+    if (branchId.isEmpty) return defaultClosingMinute;
+    final cycle = await getBranchClosingCycleOrDefault(branchId);
+    return cycle.closingMinute;
+  }
+
+  /// Set the closing time for this branch. Online-only: Supabase first, then update cache.
+  static Future<void> setClosingTime(String branchId, int hour, int minute) async {
+    if (branchId.isEmpty) return;
+    final cycle = await getBranchClosingCycleOrDefault(branchId);
+    final updated = BranchClosingCycle(
+      branchId: branchId,
+      useCustomClosing: cycle.useCustomClosing,
+      closingHour: hour,
+      closingMinute: minute,
+    );
+    await _db.upsertBranchClosingCycle(updated);
+    await _writeCache(branchId, updated);
+  }
+
+  /// Get the business date for a given DateTime based on this branch's closing cycle.
+  static Future<DateTime> getBusinessDate(String branchId, [DateTime? dateTime]) async {
     final now = dateTime ?? DateTime.now();
-    final useCustom = await isCustomClosingEnabled();
-    
+    if (branchId.isEmpty) return DateTime(now.year, now.month, now.day);
+
+    final useCustom = await isCustomClosingEnabled(branchId);
     if (!useCustom) {
-      // Default behavior: use calendar date
       return DateTime(now.year, now.month, now.day);
     }
 
-    final closingHour = await getClosingHour();
-    final closingMinute = await getClosingMinute();
-    
-    // Create a DateTime for today at the closing time
+    final closingHour = await getClosingHour(branchId);
+    final closingMinute = await getClosingMinute(branchId);
     final closingTimeToday = DateTime(now.year, now.month, now.day, closingHour, closingMinute);
-    
-    // If current time is before closing time today, it's still the previous business day
+
     if (now.isBefore(closingTimeToday)) {
-      // Return yesterday's date
       final yesterday = now.subtract(const Duration(days: 1));
       return DateTime(yesterday.year, yesterday.month, yesterday.day);
-    } else {
-      // Return today's date
-      return DateTime(now.year, now.month, now.day);
     }
+    return DateTime(now.year, now.month, now.day);
   }
 
-  /// Get the current business date (synchronous version using cached values)
-  /// This is less accurate but faster - use getBusinessDate() for accuracy
-  static DateTime getBusinessDateSync([DateTime? dateTime, bool? useCustom, int? closingHour, int? closingMinute]) {
+  /// Synchronous business date when you already have the cycle values (e.g. from cache).
+  static DateTime getBusinessDateSync(
+    DateTime? dateTime,
+    bool useCustom,
+    int closingHour,
+    int closingMinute,
+  ) {
     final now = dateTime ?? DateTime.now();
-    final useCustomClosing = useCustom ?? false;
-    
-    if (!useCustomClosing) {
-      return DateTime(now.year, now.month, now.day);
-    }
+    if (!useCustom) return DateTime(now.year, now.month, now.day);
 
-    final hour = closingHour ?? defaultClosingHour;
-    final minute = closingMinute ?? defaultClosingMinute;
-    
+    final hour = closingHour == 0 ? defaultClosingHour : closingHour;
+    final minute = closingMinute;
     final closingTimeToday = DateTime(now.year, now.month, now.day, hour, minute);
-    
+
     if (now.isBefore(closingTimeToday)) {
       final yesterday = now.subtract(const Duration(days: 1));
       return DateTime(yesterday.year, yesterday.month, yesterday.day);
-    } else {
-      return DateTime(now.year, now.month, now.day);
     }
+    return DateTime(now.year, now.month, now.day);
   }
 }
-

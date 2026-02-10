@@ -8,9 +8,11 @@ import '../models/qr_payment.dart';
 import '../models/due.dart';
 import '../models/cash_closing.dart';
 import '../models/branch.dart';
+import '../models/branch_closing_cycle.dart';
 import '../models/credit_expense.dart';
 import '../models/supplier.dart';
 import '../models/safe_transaction.dart';
+import '../models/fixed_expense.dart';
 import '../utils/closing_cycle_service.dart';
 import 'package:flutter/foundation.dart';
 
@@ -631,7 +633,7 @@ class DatabaseService {
       // If not stored, calculate it on the fly (for backward compatibility)
       // This happens for old data that was created before this feature
       final payments = await getQrPayments(date, branchId);
-      final useCustomClosing = await _checkCustomClosingEnabled();
+      final useCustomClosing = await ClosingCycleService.isCustomClosingEnabled(branchId);
       
       double calculatedTotal = 0.0;
       
@@ -675,11 +677,6 @@ class DatabaseService {
     }
   }
   
-  // Helper method to check if custom closing is enabled
-  Future<bool> _checkCustomClosingEnabled() async {
-    return await ClosingCycleService.isCustomClosingEnabled();
-  }
-
   // Update or insert calculated total for QR payments
   Future<void> upsertQrPaymentCalculatedTotal(
     DateTime date,
@@ -942,6 +939,112 @@ class DatabaseService {
     }
   }
 
+  /// Update branch name, location, and status. Requires RLS policy allowing UPDATE on branches.
+  Future<void> updateBranch(Branch branch) async {
+    try {
+      await _client
+          .from('branches')
+          .update({
+            'name': branch.name,
+            'location': branch.location,
+            'status': branch.status == BranchStatus.active ? 'active' : 'inactive',
+          })
+          .eq('id', branch.id);
+    } catch (e) {
+      debugPrint('Error updating branch: $e');
+      rethrow;
+    }
+  }
+
+  // Branch visibility (what to show on home screen per branch)
+  /// Fetches all visibility rows for a branch. Returns map of item_key -> visible.
+  Future<Map<String, bool>> getBranchVisibility(String branchId) async {
+    try {
+      final response = await _client
+          .from('branch_visibility')
+          .select('item_key, visible')
+          .eq('branch_id', branchId);
+      final map = <String, bool>{};
+      for (final row in response as List) {
+        final key = row['item_key'] as String?;
+        if (key != null) {
+          map[key] = row['visible'] as bool? ?? true;
+        }
+      }
+      return map;
+    } catch (e) {
+      debugPrint('Error fetching branch visibility: $e');
+      return {};
+    }
+  }
+
+  /// Sets one visibility item for a branch (upsert).
+  Future<void> setBranchVisibility(String branchId, String itemKey, bool visible) async {
+    try {
+      await _client.from('branch_visibility').upsert(
+        {
+          'branch_id': branchId,
+          'item_key': itemKey,
+          'visible': visible,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        },
+        onConflict: 'branch_id,item_key',
+      );
+    } catch (e) {
+      debugPrint('Error setting branch visibility: $e');
+      rethrow;
+    }
+  }
+
+  /// Sets all visibility items for a branch (upserts). Keys not in [visibility] are not changed in DB; omit or true = visible.
+  Future<void> setAllBranchVisibility(String branchId, Map<String, bool> visibility) async {
+    try {
+      for (final entry in visibility.entries) {
+        await setBranchVisibility(branchId, entry.key, entry.value);
+      }
+    } catch (e) {
+      debugPrint('Error setting all branch visibility: $e');
+      rethrow;
+    }
+  }
+
+  // Branch closing cycle (per-branch custom closing time)
+  Future<BranchClosingCycle?> getBranchClosingCycle(String branchId) async {
+    try {
+      final response = await _client
+          .from('branch_closing_cycle')
+          .select()
+          .eq('branch_id', branchId)
+          .maybeSingle();
+      if (response == null) return null;
+      return BranchClosingCycle.fromJson(response);
+    } catch (e) {
+      debugPrint('Error fetching branch closing cycle: $e');
+      return null;
+    }
+  }
+
+  /// Gets closing cycle for branch; returns defaults if no row exists.
+  Future<BranchClosingCycle> getBranchClosingCycleOrDefault(String branchId) async {
+    final row = await getBranchClosingCycle(branchId);
+    return row ?? BranchClosingCycle(branchId: branchId);
+  }
+
+  Future<void> upsertBranchClosingCycle(BranchClosingCycle cycle) async {
+    try {
+      await _client.from('branch_closing_cycle').upsert(
+        {
+          ...cycle.toJson(),
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        },
+        onConflict: 'branch_id',
+      );
+    } catch (e) {
+      debugPrint('Error upserting branch closing cycle: $e');
+      rethrow;
+    }
+  }
+
   // Check if there's any data that would be affected by disabling custom closing
   // Returns true if there's any UPI payment with amountAfterMidnight > 0
   // This means data exists between 12:00 AM and the custom closing time
@@ -1064,6 +1167,53 @@ class DatabaseService {
       // Balance is automatically updated by trigger
     } catch (e) {
       debugPrint('Error deleting safe transaction: $e');
+      rethrow;
+    }
+  }
+
+  // Fixed Expenses
+  Future<List<FixedExpense>> getFixedExpenses(
+    String branchId, {
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    try {
+      var query = _client
+          .from('fixed_expenses')
+          .select()
+          .eq('branch_id', branchId);
+
+      if (startDate != null) {
+        query = query.gte('date', startDate.toIso8601String().split('T')[0]);
+      }
+      if (endDate != null) {
+        query = query.lte('date', endDate.toIso8601String().split('T')[0]);
+      }
+
+      final response = await query.order('date', ascending: false);
+      return (response as List)
+          .map((item) => FixedExpense.fromJson(item))
+          .toList();
+    } catch (e) {
+      debugPrint('Error fetching fixed expenses: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> saveFixedExpense(FixedExpense expense) async {
+    try {
+      await _client.from('fixed_expenses').insert(expense.toJson());
+    } catch (e) {
+      debugPrint('Error saving fixed expense: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> deleteFixedExpense(String id) async {
+    try {
+      await _client.from('fixed_expenses').delete().eq('id', id);
+    } catch (e) {
+      debugPrint('Error deleting fixed expense: $e');
       rethrow;
     }
   }

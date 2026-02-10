@@ -65,36 +65,25 @@ class AuthService {
     _isBusinessOwnerCached = null;
   }
 
-  /// Check if there's any data recorded between 12:00 AM and custom closing time
-  /// If such data exists, automatically enable custom closing cycle
+  /// For each branch with after-midnight UPI data, auto-enable that branch's custom closing cycle.
   Future<void> _checkAndAutoEnableCustomClosing(List<Branch> branches) async {
     try {
       final dbService = DatabaseService();
-      final branchIds = branches.map((b) => b.id).toList();
-      
-      // Check if there's any data with amount_after_midnight > 0
-      final hasData = await dbService.hasDataAfterMidnight(branchIds);
-      
-      if (hasData) {
-        // Data exists between 12:00 AM and custom closing time
-        // Auto-enable custom closing cycle
-        final isCurrentlyEnabled = await ClosingCycleService.isCustomClosingEnabled();
-        
-        if (!isCurrentlyEnabled) {
-          debugPrint('Auto-enabling custom closing cycle due to existing after-midnight data');
-          await ClosingCycleService.setCustomClosingEnabled(true);
-          
-          // Ensure default closing time is set (1:00 AM)
-          final currentHour = await ClosingCycleService.getClosingHour();
-          if (currentHour == 0) {
-            // If somehow it's still 12:00 AM, set to 1:00 AM
-            await ClosingCycleService.setClosingTime(1, 0);
+      for (final branch in branches) {
+        final hasData = await dbService.hasDataAfterMidnight([branch.id]);
+        if (!hasData) continue;
+        final isEnabled = await ClosingCycleService.isCustomClosingEnabled(branch.id);
+        if (!isEnabled) {
+          debugPrint('Auto-enabling custom closing for branch ${branch.id} due to after-midnight data');
+          await ClosingCycleService.setCustomClosingEnabled(branch.id, true);
+          final hour = await ClosingCycleService.getClosingHour(branch.id);
+          if (hour == 0) {
+            await ClosingCycleService.setClosingTime(branch.id, 1, 0);
           }
         }
       }
     } catch (e) {
       debugPrint('Error checking for auto-enable custom closing: $e');
-      // Don't throw - this is a non-critical check
     }
   }
 
@@ -402,7 +391,10 @@ class AuthService {
       return false;
     }
     
-    final businessDate = await ClosingCycleService.getBusinessDate();
+    final branchId = currentBranch?.id ?? '';
+    final businessDate = branchId.isEmpty
+        ? DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day)
+        : await ClosingCycleService.getBusinessDate(branchId);
     final businessDateOnly = DateTime(businessDate.year, businessDate.month, businessDate.day);
     final dateOnly = DateTime(date.year, date.month, date.day);
     final yesterday = businessDateOnly.subtract(const Duration(days: 1));
@@ -421,7 +413,10 @@ class AuthService {
     final role = currentRole;
     if (role == null) return false;
     
-    final businessDate = await ClosingCycleService.getBusinessDate();
+    final branchId = currentBranch?.id ?? '';
+    final businessDate = branchId.isEmpty
+        ? DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day)
+        : await ClosingCycleService.getBusinessDate(branchId);
     final businessDateOnly = DateTime(businessDate.year, businessDate.month, businessDate.day);
     final dateOnly = DateTime(date.year, date.month, date.day);
     final yesterday = businessDateOnly.subtract(const Duration(days: 1));

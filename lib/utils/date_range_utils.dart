@@ -24,9 +24,12 @@ Future<DateRangeSelection?> resolveDateRange(
   DateRangeOption option, {
   DateTime? customStartDate,
   DateTime? customEndDate,
+  String? branchId,
 }) async {
-  // Get business date for "today" - this respects the closing cycle
-  final businessDate = await ClosingCycleService.getBusinessDate();
+  // Get business date for "today" - respects branch's closing cycle when branchId provided
+  final DateTime businessDate = branchId != null && branchId.isNotEmpty
+      ? await ClosingCycleService.getBusinessDate(branchId)
+      : DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
   final today = DateTime(businessDate.year, businessDate.month, businessDate.day);
 
   switch (option) {

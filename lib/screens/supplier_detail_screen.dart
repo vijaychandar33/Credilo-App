@@ -8,11 +8,25 @@ import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import 'supplier_edit_screen.dart';
 import '../utils/error_message_helper.dart';
+import '../utils/date_range_utils.dart';
 
 class SupplierDetailScreen extends StatefulWidget {
   final Supplier supplier;
+  final List<String>? selectedBranchIds;
+  final DateRangeOption? dateRangeOption;
+  final DateTime? customStartDate;
+  final DateTime? customEndDate;
+  final Set<CreditExpenseStatus>? selectedStatuses;
 
-  const SupplierDetailScreen({super.key, required this.supplier});
+  const SupplierDetailScreen({
+    super.key,
+    required this.supplier,
+    this.selectedBranchIds,
+    this.dateRangeOption,
+    this.customStartDate,
+    this.customEndDate,
+    this.selectedStatuses,
+  });
 
   @override
   State<SupplierDetailScreen> createState() => _SupplierDetailScreenState();
@@ -41,9 +55,38 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
       final branch = _authService.currentBranch;
       if (branch == null) return;
 
+      // Apply filters from parent screen
+      List<String>? branchIds = widget.selectedBranchIds;
+      DateTime? startDate;
+      DateTime? endDate;
+      List<CreditExpenseStatus>? statuses;
+
+      // Resolve date range if filter is provided
+      if (widget.dateRangeOption != null) {
+        final dateRange = await resolveDateRange(
+          widget.dateRangeOption!,
+          customStartDate: widget.customStartDate,
+          customEndDate: widget.customEndDate,
+          branchId: branch.id,
+        );
+        if (dateRange != null) {
+          startDate = dateRange.startDate;
+          endDate = dateRange.endDate;
+        }
+      }
+
+      // Use selected statuses if provided
+      if (widget.selectedStatuses != null && widget.selectedStatuses!.isNotEmpty) {
+        statuses = widget.selectedStatuses!.toList();
+      }
+
       final expenses = await _dbService.getCreditExpensesBySupplier(
         widget.supplier.name,
         branch.businessId,
+        branchIds: branchIds,
+        startDate: startDate,
+        endDate: endDate,
+        statuses: statuses,
       );
       setState(() {
         _expenses = expenses;
@@ -61,6 +104,25 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  bool _hasFiltersApplied() {
+    // Check if any filters are applied
+    if (widget.selectedBranchIds != null && widget.selectedBranchIds!.isNotEmpty) {
+      final allBranches = _authService.ownerBranches.isNotEmpty 
+          ? _authService.ownerBranches.length 
+          : _authService.userBranches.length;
+      if (widget.selectedBranchIds!.length != allBranches) {
+        return true;
+      }
+    }
+    if (widget.dateRangeOption != null && widget.dateRangeOption != DateRangeOption.allTime) {
+      return true;
+    }
+    if (widget.selectedStatuses != null && widget.selectedStatuses!.isNotEmpty) {
+      return true;
+    }
+    return false;
   }
 
   void _toggleSelection(String id) {
@@ -309,6 +371,12 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
       appBar: AppBar(
         title: Text(widget.supplier.name),
         actions: [
+          if (_hasFiltersApplied())
+            IconButton(
+              icon: const Icon(Icons.filter_alt),
+              tooltip: 'Filters applied',
+              onPressed: null,
+            ),
           if (!_authService.isReadOnly()) ...[
           if (_selectedIds.isNotEmpty)
             IconButton(
@@ -321,11 +389,12 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
             onPressed: _editSupplier,
             tooltip: 'Edit Supplier',
           ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline),
-            onPressed: _deleteSupplier,
-            tooltip: 'Delete Supplier',
-          ),
+          if (_expenses.isEmpty)
+            IconButton(
+              icon: const Icon(Icons.delete_outline),
+              onPressed: _deleteSupplier,
+              tooltip: 'Delete Supplier',
+            ),
           ],
         ],
       ),

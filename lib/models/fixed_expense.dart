@@ -1,0 +1,49 @@
+class FixedExpense {
+  final String? id;
+  final DateTime date;
+  final String userId;
+  final String branchId;
+  final String category;
+  final double amount;
+  final String? note;
+  final DateTime? createdAt;
+
+  FixedExpense({
+    this.id,
+    required this.date,
+    required this.userId,
+    required this.branchId,
+    required this.category,
+    required this.amount,
+    this.note,
+    this.createdAt,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      if (id != null) 'id': id,
+      'date': date.toIso8601String().split('T')[0],
+      'user_id': userId,
+      'branch_id': branchId,
+      'category': category,
+      'amount': amount,
+      if (note != null && note!.isNotEmpty) 'note': note,
+      if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+    };
+  }
+
+  factory FixedExpense.fromJson(Map<String, dynamic> json) {
+    return FixedExpense(
+      id: json['id']?.toString(),
+      date: DateTime.parse(json['date']),
+      userId: json['user_id']?.toString() ?? '',
+      branchId: json['branch_id']?.toString() ?? '',
+      category: json['category']?.toString() ?? 'other',
+      amount: (json['amount'] as num).toDouble(),
+      note: json['note']?.toString(),
+      createdAt: json['created_at'] != null
+          ? DateTime.parse(json['created_at'])
+          : null,
+    );
+  }
+}

@@ -101,6 +101,7 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
         _selectedRangeOption,
         customStartDate: _customStartDate,
         customEndDate: _customEndDate,
+        branchId: _authService.currentBranch?.id,
       );
 
       // Calculate total unpaid for each supplier
@@ -262,13 +263,14 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
                                 setModalState(() {
                                   toggleAll(true);
                                 });
+                                Navigator.pop(context, tempSelection);
                               },
                               child: const Text('Reset'),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
-                            child: ElevatedButton(
+                            child: OutlinedButton(
                               onPressed: () {
                                 if (tempSelection.isEmpty) {
                                   toggleAll(true);
@@ -348,6 +350,24 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
       return branch.name;
     }
     return '${_selectedBranchIds.length} selected';
+  }
+
+  bool _hasFiltersApplied() {
+    // Check if branch filter is applied (not all branches selected)
+    if (_availableBranches.length > 1) {
+      if (_selectedBranchIds.isEmpty || _selectedBranchIds.length != _availableBranches.length) {
+        return true;
+      }
+    }
+    // Check if date range filter is applied (not "All Time")
+    if (_selectedRangeOption != DateRangeOption.allTime) {
+      return true;
+    }
+    // Check if status filter is applied (pending checkbox checked)
+    if (_selectedStatuses.contains(CreditExpenseStatus.unpaid)) {
+      return true;
+    }
+    return false;
   }
 
   Widget _buildBranchSelectorField() {
@@ -534,7 +554,18 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => SupplierDetailScreen(supplier: supplier),
+                  builder: (context) => SupplierDetailScreen(
+                    supplier: supplier,
+                    selectedBranchIds: _selectedBranchIds.isNotEmpty 
+                        ? _selectedBranchIds.toList() 
+                        : null,
+                    dateRangeOption: _selectedRangeOption,
+                    customStartDate: _customStartDate,
+                    customEndDate: _customEndDate,
+                    selectedStatuses: _selectedStatuses.isNotEmpty 
+                        ? _selectedStatuses 
+                        : null,
+                  ),
                 ),
               ).then((_) => _loadSuppliers()); // Reload to refresh totals
             },
@@ -675,6 +706,12 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
       appBar: AppBar(
         title: const Text('Suppliers'),
         actions: [
+          if (_hasFiltersApplied())
+            IconButton(
+              icon: const Icon(Icons.filter_alt),
+              tooltip: 'Filters applied',
+              onPressed: null,
+            ),
           if (!_authService.isReadOnly())
           IconButton(
             icon: const Icon(Icons.add),
