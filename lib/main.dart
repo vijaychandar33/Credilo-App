@@ -6,6 +6,7 @@ import 'screens/login_screen.dart';
 import 'services/auth_service.dart';
 import 'config/supabase_config.dart';
 import 'utils/app_colors.dart';
+import 'widgets/internet_status_overlay.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -119,6 +120,11 @@ class _MyAppState extends State<MyApp> {
           : _isAuthenticated
               ? const DashboardHomeScreen()
               : const LoginScreen(),
+      builder: (context, child) {
+        return InternetStatusOverlay(
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       debugShowCheckedModeBanner: false,
     );
   }

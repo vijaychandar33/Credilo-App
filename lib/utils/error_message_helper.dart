@@ -1,6 +1,14 @@
 import 'package:flutter/foundation.dart';
 
 class ErrorMessageHelper {
+  /// Returns true if the provided text looks like a URL or contains one.
+  static bool _looksLikeUrl(String value) {
+    final lower = value.toLowerCase();
+    return lower.contains('http://') ||
+        lower.contains('https://') ||
+        RegExp(r'\b[a-z0-9\-]+\.[a-z]{2,}\b').hasMatch(lower);
+  }
+
   /// Converts technical error messages to user-friendly messages
   static String getUserFriendlyError(dynamic error, {bool showDetails = false}) {
     // Log the actual error for debugging
@@ -46,7 +54,7 @@ class ErrorMessageHelper {
     }
     
     if (errorString.contains('network') || errorString.contains('connection') || errorString.contains('timeout')) {
-      return 'Network connection error. Please check your internet connection and try again.';
+      return 'Internet not available. Please check your connection and try again.';
     }
     
     // Rate limiting errors - check for specific OTP rate limit first
@@ -126,7 +134,7 @@ class ErrorMessageHelper {
         if (cleanMessage.endsWith('"') || cleanMessage.endsWith("'")) {
           cleanMessage = cleanMessage.substring(0, cleanMessage.length - 1);
         }
-        if (cleanMessage.isNotEmpty) {
+        if (cleanMessage.isNotEmpty && !_looksLikeUrl(cleanMessage)) {
           return cleanMessage[0].toUpperCase() + cleanMessage.substring(1);
         }
       }
@@ -150,7 +158,8 @@ class ErrorMessageHelper {
           if (cleanMessage.isNotEmpty && 
               !cleanMessage.contains('exception') &&
               !cleanMessage.contains('statuscode') &&
-              !cleanMessage.contains('code:')) {
+              !cleanMessage.contains('code:') &&
+              !_looksLikeUrl(cleanMessage)) {
             return cleanMessage[0].toUpperCase() + cleanMessage.substring(1);
           }
         }
@@ -169,7 +178,8 @@ class ErrorMessageHelper {
             !message.contains('code:') &&
             !message.contains('stacktrace') &&
             !message.contains('authapiexception') &&
-            message.length < 100) {
+            message.length < 100 &&
+            !_looksLikeUrl(message)) {
           // Clean up the message - remove quotes if present
           String cleanMessage = message;
           if (cleanMessage.startsWith('"') || cleanMessage.startsWith("'")) {
@@ -185,9 +195,9 @@ class ErrorMessageHelper {
       }
     }
     
-    // Default friendly message - but include a hint to check logs
+    // Default friendly message
     debugPrint('ErrorMessageHelper: Using default error message for: $error');
-    return 'Something went wrong. Please check your connection and try again. If the problem persists, check the debug logs.';
+    return 'Something went wrong. Please check your connection and try again.';
   }
 }
 

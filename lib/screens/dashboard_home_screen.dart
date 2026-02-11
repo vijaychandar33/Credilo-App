@@ -93,7 +93,13 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> with WidgetsB
     });
 
     try {
-      final branches = _authService.userBranches;
+      var branches = _authService.userBranches;
+      // If we have a logged-in user but branches are not loaded (e.g. app started offline),
+      // try to refresh branches once before showing empty state.
+      if (branches.isEmpty && _authService.currentUser != null) {
+        await _authService.refreshBranches();
+        branches = _authService.userBranches;
+      }
       if (branches.isEmpty) {
         setState(() {
           _isLoading = false;
