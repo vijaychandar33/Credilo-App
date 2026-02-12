@@ -13,6 +13,7 @@ class CashClosing {
   final double nextOpening;
   final double? discrepancy;
   final DateTime? createdAt;
+  final String? lastEditedEmail;
 
   CashClosing({
     this.id,
@@ -29,6 +30,7 @@ class CashClosing {
     required this.nextOpening,
     this.discrepancy,
     this.createdAt,
+    this.lastEditedEmail,
   });
 
   Map<String, dynamic> toJson() {
@@ -47,6 +49,7 @@ class CashClosing {
       'next_opening': nextOpening,
       'discrepancy': discrepancy,
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+      if (lastEditedEmail != null) 'last_edited_email': lastEditedEmail,
     };
   }
 
@@ -72,6 +75,7 @@ class CashClosing {
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'])
           : null,
+      lastEditedEmail: json['last_edited_email']?.toString(),
     );
   }
 }

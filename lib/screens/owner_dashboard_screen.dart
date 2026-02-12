@@ -276,8 +276,14 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
       double totalCardSales = 0.0;
       double totalOnlineSales = 0.0;
       double totalQrPayments = 0.0;
-      double totalReceivables = 0.0; // Only receivables for total sales
+      // For overview totals:
+      // - totalReceivables: only RECEIVED receivables (counted in sales)
+      // - totalPayables: only PAID payables (counted in expenses)
+      // We also track outstanding amounts for the Dues summary.
+      double totalReceivables = 0.0;
       double totalPayables = 0.0;
+      double totalOutstandingReceivables = 0.0;
+      double totalOutstandingPayables = 0.0;
       double totalClosingCash = 0.0;
       double totalCashSales = 0.0;
 
@@ -307,7 +313,10 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
           final branchFixedExpenses = fixedExpenses.fold(0.0, (sum, e) => sum + e.amount);
           totalFixedExpenses += branchFixedExpenses;
           
-          totalExpenses += branchExpenses + branchOnlineExpenses + branchCreditExpenses + branchFixedExpenses;
+          totalExpenses += branchExpenses +
+              branchOnlineExpenses +
+              branchCreditExpenses +
+              branchFixedExpenses;
 
           final cardSales = await _dbService.getCardSales(currentDate, branch.id);
           final branchCardSales = cardSales.fold(0.0, (sum, s) => sum + s.amount);
@@ -322,13 +331,29 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
           totalQrPayments += qrTotal;
 
           final dues = await _dbService.getDues(currentDate, branch.id);
-          // Calculate receivables and payables separately
-          totalReceivables += dues
-              .where((d) => d.type == DueType.receivable)
+          // Split dues by type and status
+          final branchReceivablesReceived = dues
+              .where((d) => d.type == DueType.receivable && d.isReceived)
               .fold(0.0, (sum, d) => sum + d.amount);
-          totalPayables += dues
-              .where((d) => d.type == DueType.payable)
+          final branchReceivablesOpen = dues
+              .where((d) => d.type == DueType.receivable && !d.isReceived)
               .fold(0.0, (sum, d) => sum + d.amount);
+          final branchPayablesPaid = dues
+              .where((d) => d.type == DueType.payable && d.isReceived)
+              .fold(0.0, (sum, d) => sum + d.amount);
+          final branchPayablesOpen = dues
+              .where((d) => d.type == DueType.payable && !d.isReceived)
+              .fold(0.0, (sum, d) => sum + d.amount);
+
+          // For overview totals we count only received / paid items
+          totalReceivables += branchReceivablesReceived;
+          totalPayables += branchPayablesPaid;
+          // Paid payables should also be included in total expenses
+          totalExpenses += branchPayablesPaid;
+
+          // Track outstanding dues separately for Dues summary
+          totalOutstandingReceivables += branchReceivablesOpen;
+          totalOutstandingPayables += branchPayablesOpen;
 
           // Calculate cash sales for this branch: (Cash in Hand - Opening Balance) + Total Cash Expenses
           final cashCounts = await _dbService.getCashCounts(currentDate, branch.id);
@@ -352,10 +377,11 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
         }
       }
 
-      // Total Sales = Cash Sales + Card Sales + Online Sales + QR Payments + Receivables
-      final totalSales = totalCashSales + totalCardSales + totalOnlineSales + totalQrPayments + totalReceivables;
-      // Total Due Amounts = Receivables - Payables
-      final totalDues = totalReceivables - totalPayables;
+      // Total Sales = Cash Sales + Card Sales + Online Sales + QR Payments + RECEIVED receivables
+      final totalSales =
+          totalCashSales + totalCardSales + totalOnlineSales + totalQrPayments + totalReceivables;
+      // Total Due Amounts = outstanding receivables - outstanding payables
+      final totalDues = totalOutstandingReceivables - totalOutstandingPayables;
       
       setState(() {
         _overviewData = {

@@ -111,6 +111,15 @@ class OwnerDashboardAggregatedDetailScreen extends StatelessWidget {
               AppColors.textPrimary,
               () => _navigateToDetail(context, DetailScreenType.creditExpenses, 'Total Credit Expenses'),
             ),
+            const SizedBox(height: 12),
+            _buildSectionCard(
+              context,
+              'Payables',
+              CurrencyFormatter.format(data['totalPayables'] ?? 0.0),
+              Icons.arrow_upward,
+              AppColors.warning,
+              null,
+            ),
             const SizedBox(height: 24),
             _buildTotalCard('Total Expenses', totalExpenses, AppColors.error),
           ] else if (title == 'Total Profit') ...[

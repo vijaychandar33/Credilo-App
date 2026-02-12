@@ -41,8 +41,16 @@ class OwnerDashboardDetailScreen extends StatefulWidget {
 class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen> {
   final DatabaseService _dbService = DatabaseService();
   bool _isLoading = true;
+  // Full list of loaded items for the selected branches + date range
+  List<Map<String, dynamic>> _allItems = [];
+  // Filtered list based on provider / machine / platform filters
   List<Map<String, dynamic>> _items = [];
   double _total = 0.0;
+
+  // Optional in-screen filters for specific sections
+  String? _selectedProvider; // For UPI Payments
+  String? _selectedMachine; // For Card Sales
+  String? _selectedPlatform; // For Online Sales
 
   @override
   void initState() {
@@ -77,6 +85,7 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
                   'amount': sale.amount,
                   'notes': sale.notes,
                   'type': 'card_sale',
+                  'lastEditedEmail': sale.lastEditedEmail,
                 });
                 total += sale.amount;
               }
@@ -96,6 +105,7 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
                   'amount': sale.net,
                   'notes': sale.notes,
                   'type': 'online_sale',
+                  'lastEditedEmail': sale.lastEditedEmail,
                 });
                 total += sale.net;
               }
@@ -115,6 +125,7 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
                   'amount': payment.amount ?? (payment.amountBeforeMidnight ?? 0) + (payment.amountAfterMidnight ?? 0),
                   'notes': payment.notes,
                   'type': 'qr_payment',
+                  'lastEditedEmail': payment.lastEditedEmail,
                 });
               }
               // Use calculated total instead of summing individual payments
@@ -133,6 +144,7 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
                   'amount': expense.amount,
                   'note': expense.note,
                   'type': 'cash_expense',
+                  'lastEditedEmail': expense.lastEditedEmail,
                 });
                 total += expense.amount;
               }
@@ -150,6 +162,7 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
                   'amount': expense.amount,
                   'note': expense.note,
                   'type': 'online_expense',
+                  'lastEditedEmail': expense.lastEditedEmail,
                 });
                 total += expense.amount;
               }
@@ -168,6 +181,7 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
                   'note': expense.note,
                   'status': expense.status.toString(),
                   'type': 'credit_expense',
+                  'lastEditedEmail': expense.lastEditedEmail,
                 });
                 total += expense.amount;
               }
@@ -188,6 +202,7 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
                   'amount': expense.amount,
                   'note': expense.note,
                   'type': 'fixed_expense',
+                  'lastEditedEmail': expense.lastEditedEmail,
                 });
                 total += expense.amount;
               }
@@ -207,6 +222,9 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
               
               final cashSales = (countedCash - opening) + branchExpenses;
               
+              // Get the cash closing record for this date to read last edited email (if any)
+              final cashClosing = await _dbService.getCashClosing(currentDate, branch.id);
+              
               if (cashSales > 0 || cashCounts.isNotEmpty) {
                 items.add({
                   'date': currentDate,
@@ -217,6 +235,7 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
                   'expenses': branchExpenses,
                   'amount': cashSales,
                   'type': 'cash_sale',
+                  'lastEditedEmail': cashClosing?.lastEditedEmail,
                 });
                 total += cashSales;
               }
@@ -233,12 +252,13 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
         }
       }
 
-      // Sort by date descending
-      items.sort((a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime));
-
       setState(() {
-        _items = items;
+        // Sort by date descending for stable ordering
+        items.sort((a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime));
+        _allItems = items;
         _total = total;
+        // Apply any active filters to derive the visible list
+        _applyFilters();
         _isLoading = false;
       });
     } catch (e) {
@@ -281,7 +301,9 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
                     ),
                   )
                 : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      _buildFilterSummarySection(),
                       Expanded(
                         child: ListView.builder(
                           padding: const EdgeInsets.all(16),
@@ -482,7 +504,265 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
         break;
     }
 
+    final lastEdited = item['lastEditedEmail']?.toString();
+    if (lastEdited != null && lastEdited.trim().isNotEmpty) {
+      fields.add(_buildField('Last Edited', lastEdited.trim()));
+    }
+
     return fields;
+  }
+
+  /// Apply provider / machine / platform filters on top of the loaded items.
+  void _applyFilters() {
+    List<Map<String, dynamic>> filtered = List.from(_allItems);
+
+    switch (widget.type) {
+      case DetailScreenType.qrPayments:
+        if (_selectedProvider != null && _selectedProvider!.isNotEmpty) {
+          filtered = filtered
+              .where((item) => item['provider'] == _selectedProvider)
+              .toList();
+        }
+        break;
+      case DetailScreenType.cardSales:
+        if (_selectedMachine != null && _selectedMachine!.isNotEmpty) {
+          filtered = filtered
+              .where((item) => item['machine'] == _selectedMachine)
+              .toList();
+        }
+        break;
+      case DetailScreenType.onlineSales:
+        if (_selectedPlatform != null && _selectedPlatform!.isNotEmpty) {
+          filtered = filtered
+              .where((item) => item['platform'] == _selectedPlatform)
+              .toList();
+        }
+        break;
+      default:
+        // Other detail types currently do not have additional in-screen filters.
+        break;
+    }
+
+    setState(() {
+      _items = filtered;
+    });
+  }
+
+  /// Summary row shown below the app bar with active filters
+  /// (branches, date range and any provider/machine/platform filters).
+  Widget _buildFilterSummarySection() {
+    final branchLabel = _branchLabel();
+    final dateLabel = _dateRangeLabel();
+
+    final List<Widget> chips = [
+      _buildFilterChip('Branches', branchLabel),
+      _buildFilterChip('Date', dateLabel),
+    ];
+
+    if (widget.type == DetailScreenType.qrPayments) {
+      chips.add(_buildFilterChip(
+        'Provider',
+        _selectedProvider ?? 'All',
+      ));
+    } else if (widget.type == DetailScreenType.cardSales) {
+      chips.add(_buildFilterChip(
+        'Machine',
+        _selectedMachine ?? 'All',
+      ));
+    } else if (widget.type == DetailScreenType.onlineSales) {
+      chips.add(_buildFilterChip(
+        'Platform',
+        _selectedPlatform ?? 'All',
+      ));
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          color: AppColors.surface,
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: chips,
+          ),
+        ),
+        if (widget.type == DetailScreenType.qrPayments)
+          _buildProviderFilterControls()
+        else if (widget.type == DetailScreenType.cardSales)
+          _buildMachineFilterControls()
+        else if (widget.type == DetailScreenType.onlineSales)
+          _buildPlatformFilterControls(),
+      ],
+    );
+  }
+
+  Widget _buildFilterChip(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceElevated,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$label: ',
+            style: TextStyle(
+              fontSize: 11,
+              color: AppColors.textTertiary,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 11,
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _branchLabel() {
+    if (widget.selectedBranches.isEmpty) return 'No branches';
+    if (widget.selectedBranches.length == 1) {
+      return widget.selectedBranches.first.name;
+    }
+    return '${widget.selectedBranches.length} branches';
+  }
+
+  String _dateRangeLabel() {
+    final start = widget.dateRange.startDate;
+    final end = widget.dateRange.endDate;
+    final formatter = DateFormat('d MMM yyyy');
+    if (start.year == end.year &&
+        start.month == end.month &&
+        start.day == end.day) {
+      return formatter.format(start);
+    }
+    return '${formatter.format(start)} - ${formatter.format(end)}';
+  }
+
+  Widget _buildProviderFilterControls() {
+    final providers = _allItems
+        .map((item) => item['provider'])
+        .whereType<String>()
+        .toSet()
+        .toList()
+      ..sort();
+
+    if (providers.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return _buildDropdownFilterRow(
+      label: 'Filter by provider',
+      value: _selectedProvider,
+      items: providers,
+      onChanged: (value) {
+        _selectedProvider = value;
+        _applyFilters();
+      },
+    );
+  }
+
+  Widget _buildMachineFilterControls() {
+    final machines = _allItems
+        .map((item) => item['machine'])
+        .whereType<String>()
+        .toSet()
+        .toList()
+      ..sort();
+
+    if (machines.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return _buildDropdownFilterRow(
+      label: 'Filter by machine',
+      value: _selectedMachine,
+      items: machines,
+      onChanged: (value) {
+        _selectedMachine = value;
+        _applyFilters();
+      },
+    );
+  }
+
+  Widget _buildPlatformFilterControls() {
+    final platforms = _allItems
+        .map((item) => item['platform'])
+        .whereType<String>()
+        .toSet()
+        .toList()
+      ..sort();
+
+    if (platforms.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return _buildDropdownFilterRow(
+      label: 'Filter by platform',
+      value: _selectedPlatform,
+      items: platforms,
+      onChanged: (value) {
+        _selectedPlatform = value;
+        _applyFilters();
+      },
+    );
+  }
+
+  Widget _buildDropdownFilterRow({
+    required String label,
+    required String? value,
+    required List<String> items,
+    required ValueChanged<String?> onChanged,
+  }) {
+    return Container(
+      color: AppColors.surface,
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: DropdownButtonFormField<String>(
+              initialValue: value,
+              decoration: InputDecoration(
+                labelText: label,
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+              items: [
+                const DropdownMenuItem<String>(
+                  value: null,
+                  child: Text('All'),
+                ),
+                ...items.map(
+                  (e) => DropdownMenuItem<String>(
+                    value: e,
+                    child: Text(e),
+                  ),
+                ),
+              ],
+              onChanged: onChanged,
+            ),
+          ),
+          if (value != null) ...[
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: () {
+                onChanged(null);
+              },
+              child: const Text('Clear'),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   Widget _buildField(String label, String value) {

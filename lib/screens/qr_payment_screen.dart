@@ -82,10 +82,8 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
       final providerIdToName = {
         for (var p in upiProviders) if (p.id != null) p.id!: p.name,
       };
-      final providerNames = upiProviders.map((p) => p.name).toList();
-      if (!providerNames.contains('Others')) {
-        providerNames.add('Others');
-      }
+      final providerNames = upiProviders.map((p) => p.name).where((n) => n.toLowerCase() != 'others').toList();
+      providerNames.add('Others'); // Always last
 
       if (payments.isNotEmpty) {
         // First, migrate payments if needed (outside setState for async operations)
@@ -496,7 +494,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
       appBar: AppBar(
         title: Text('UPI - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
         actions: [
-          if (_authService.canAccessCardOrUpiManagement())
+          if (_authService.canAccessManagementInCurrentBranch)
             IconButton(
               icon: const Icon(Icons.qr_code_2),
               onPressed: () {

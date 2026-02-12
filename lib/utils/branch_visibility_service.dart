@@ -127,7 +127,11 @@ class BranchVisibilityService {
         final fromDb = await _db.getBranchVisibility(branchId);
         final result = <String, bool>{};
         for (final key in BranchVisibilityKeys.all) {
-          result[key] = fromDb[key] ?? true;
+          if (key == BranchVisibilityKeys.cashClosing) {
+            result[key] = true;
+          } else {
+            result[key] = fromDb[key] ?? true;
+          }
         }
         await _writeCache(branchId, result);
       } catch (e) {
@@ -138,6 +142,10 @@ class BranchVisibilityService {
 
   /// Returns whether the section [key] is visible for [branchId]. Default true.
   static Future<bool> isVisible(String branchId, String key) async {
+    if (key == BranchVisibilityKeys.cashClosing) {
+      // Cash closing is mandatory and should always be visible.
+      return true;
+    }
     final all = await getAll(branchId);
     return all[key] ?? true;
   }
@@ -158,7 +166,11 @@ class BranchVisibilityService {
       final fromDb = await _db.getBranchVisibility(branchId);
       final result = <String, bool>{};
       for (final key in BranchVisibilityKeys.all) {
-        result[key] = fromDb[key] ?? true;
+        if (key == BranchVisibilityKeys.cashClosing) {
+          result[key] = true;
+        } else {
+          result[key] = fromDb[key] ?? true;
+        }
       }
       await _writeCache(branchId, result);
       return result;
@@ -170,6 +182,10 @@ class BranchVisibilityService {
 
   /// Set visibility for one key. Online-only: writes to Supabase first, then updates cache on success.
   static Future<void> set(String branchId, String key, bool visible) async {
+    if (key == BranchVisibilityKeys.cashClosing) {
+      // Ignore attempts to hide cash closing; always store as true.
+      visible = true;
+    }
     await _db.setBranchVisibility(branchId, key, visible);
     final all = await _readCache(branchId);
     all[key] = visible;
@@ -180,7 +196,11 @@ class BranchVisibilityService {
   static Future<void> setAll(String branchId, Map<String, bool> visibility) async {
     final all = <String, bool>{};
     for (final key in BranchVisibilityKeys.all) {
-      all[key] = visibility[key] ?? true;
+      if (key == BranchVisibilityKeys.cashClosing) {
+        all[key] = true;
+      } else {
+        all[key] = visibility[key] ?? true;
+      }
     }
     await _db.setAllBranchVisibility(branchId, all);
     await _writeCache(branchId, all);

@@ -7,6 +7,7 @@ class FixedExpense {
   final double amount;
   final String? note;
   final DateTime? createdAt;
+  final String? lastEditedEmail;
 
   FixedExpense({
     this.id,
@@ -17,6 +18,7 @@ class FixedExpense {
     required this.amount,
     this.note,
     this.createdAt,
+    this.lastEditedEmail,
   });
 
   Map<String, dynamic> toJson() {
@@ -29,6 +31,7 @@ class FixedExpense {
       'amount': amount,
       if (note != null && note!.isNotEmpty) 'note': note,
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+      if (lastEditedEmail != null) 'last_edited_email': lastEditedEmail,
     };
   }
 
@@ -44,6 +47,7 @@ class FixedExpense {
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'])
           : null,
+      lastEditedEmail: json['last_edited_email']?.toString(),
     );
   }
 }

@@ -24,6 +24,9 @@ class Due {
   final bool isReceived;
   final String? remarks;
   final DateTime? createdAt;
+  final String? lastEditedEmail;
+  /// Email of user who last changed status (Received/Paid). Set only when status is updated.
+  final String? statusLastEditedEmail;
 
   Due({
     this.id,
@@ -36,6 +39,8 @@ class Due {
     this.isReceived = false,
     this.remarks,
     this.createdAt,
+    this.lastEditedEmail,
+    this.statusLastEditedEmail,
   });
 
   Map<String, dynamic> toJson() {
@@ -50,6 +55,8 @@ class Due {
       'status': dueReceivedStatusToJson(isReceived),
       'remarks': remarks,
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+      if (lastEditedEmail != null) 'last_edited_email': lastEditedEmail,
+      if (statusLastEditedEmail != null) 'status_last_edited_email': statusLastEditedEmail,
     };
   }
 
@@ -69,6 +76,8 @@ class Due {
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'])
           : null,
+      lastEditedEmail: json['last_edited_email']?.toString(),
+      statusLastEditedEmail: json['status_last_edited_email']?.toString(),
     );
   }
 }

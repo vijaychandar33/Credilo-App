@@ -22,7 +22,7 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
   @override
   void initState() {
     super.initState();
-    if (!_authService.canAccessCardOrUpiManagement()) {
+    if (!_authService.canAccessManagementInCurrentBranch) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) Navigator.of(context).pop();
       });

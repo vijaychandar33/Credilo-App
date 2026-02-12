@@ -11,6 +11,7 @@ import '../utils/date_range_utils.dart';
 import '../utils/error_message_helper.dart';
 import 'supplier_detail_screen.dart';
 import 'supplier_edit_screen.dart';
+import 'others_expenses_screen.dart';
 
 class SupplierManagementScreen extends StatefulWidget {
   const SupplierManagementScreen({super.key});
@@ -44,6 +45,12 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
   @override
   void initState() {
     super.initState();
+    if (!_authService.canAccessManagementInCurrentBranch) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).pop();
+      });
+      return;
+    }
     _initializeFilters();
     _loadSuppliers();
   }
@@ -766,12 +773,26 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
               tooltip: 'Filters applied',
               onPressed: null,
             ),
-          if (!_authService.isReadOnly())
-          IconButton(
-            icon: const Icon(Icons.add),
-            tooltip: 'Add Supplier',
-            onPressed: _addSupplier,
+          TextButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const OthersExpensesScreen(),
+                ),
+              ).then((_) => _loadSuppliers());
+            },
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.onSurface,
+            ),
+            child: const Text('Others'),
           ),
+          if (!_authService.isReadOnly())
+            IconButton(
+              icon: const Icon(Icons.add),
+              tooltip: 'Add Supplier',
+              onPressed: _addSupplier,
+            ),
         ],
       ),
       body: _isLoading

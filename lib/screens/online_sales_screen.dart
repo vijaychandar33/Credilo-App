@@ -62,10 +62,8 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
       final platformIdToName = {
         for (var p in platformList) if (p.id != null) p.id!: p.name,
       };
-      final providerNames = platformList.map((p) => p.name).toList();
-      if (!providerNames.contains('Others')) {
-        providerNames.add('Others');
-      }
+      final providerNames = platformList.map((p) => p.name).where((n) => n.toLowerCase() != 'others').toList();
+      providerNames.add('Others'); // Always last
 
       if (sales.isNotEmpty) {
         setState(() {
@@ -277,7 +275,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
       appBar: AppBar(
         title: Text('Online Sales - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
         actions: [
-          if (_authService.canAccessCardOrUpiManagement())
+          if (_authService.canAccessManagementInCurrentBranch)
             IconButton(
               icon: const Icon(Icons.shopping_bag),
               onPressed: () {

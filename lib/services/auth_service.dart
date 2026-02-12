@@ -476,6 +476,14 @@ class AuthService {
     return canManageUsers();
   }
 
+  /// True only for the current branch: show Card/UPI/Online Sales management icon in app bar
+  /// when user is owner or business owner of this branch (not manager/staff, not read-only).
+  bool get canAccessManagementInCurrentBranch {
+    final role = currentRole;
+    if (role == null) return false;
+    return role == UserRole.owner || role == UserRole.businessOwner;
+  }
+
   // Check if user can manage users (business owners and owners, but not read-only)
   bool canManageUsers() {
     if (_currentUser == null) return false;

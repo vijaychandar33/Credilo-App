@@ -122,15 +122,9 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
         }
         _suppliers = uniqueSuppliers.values.toList();
         
-        // Ensure "Others" exists and is first
-        if (!_suppliers.any((s) => s.name.toLowerCase() == 'others')) {
-          _suppliers.insert(0, Supplier(name: 'Others', businessId: branch.businessId));
-        } else {
-          // Move "Others" to first position
-          final others = _suppliers.firstWhere((s) => s.name.toLowerCase() == 'others');
-          _suppliers.remove(others);
-          _suppliers.insert(0, others);
-        }
+        // Ensure "Others" exists and is always last
+        _suppliers.removeWhere((s) => s.name.toLowerCase() == 'others');
+        _suppliers.add(Supplier(name: 'Others', businessId: branch.businessId));
       });
     } catch (e) {
       debugPrint('Error loading suppliers: $e');
@@ -327,11 +321,12 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
       appBar: AppBar(
         title: Text('Credit Expense - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.business),
-            onPressed: _openSupplierManagement,
-            tooltip: 'Manage Suppliers',
-          ),
+          if (_authService.canAccessManagementInCurrentBranch)
+            IconButton(
+              icon: const Icon(Icons.business),
+              onPressed: _openSupplierManagement,
+              tooltip: 'Manage Suppliers',
+            ),
         ],
       ),
       body: Column(

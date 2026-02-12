@@ -46,7 +46,10 @@ class DatabaseService {
 
   Future<void> saveCashExpense(CashExpense expense) async {
     try {
-      await _client.from('cash_expenses').insert(expense.toJson());
+      final data = expense.toJson();
+      final email = Supabase.instance.client.auth.currentUser?.email;
+      if (email != null) data['last_edited_email'] = email;
+      await _client.from('cash_expenses').insert(data);
     } catch (e) {
       debugPrint('Error saving cash expense: $e');
       rethrow;
@@ -55,9 +58,12 @@ class DatabaseService {
 
   Future<void> updateCashExpense(CashExpense expense) async {
     try {
+      final data = expense.toJson();
+      final email = Supabase.instance.client.auth.currentUser?.email;
+      if (email != null) data['last_edited_email'] = email;
       await _client
           .from('cash_expenses')
-          .update(expense.toJson())
+          .update(data)
           .eq('id', expense.id!);
     } catch (e) {
       debugPrint('Error updating cash expense: $e');
@@ -95,7 +101,10 @@ class DatabaseService {
 
   Future<void> saveOnlineExpense(OnlineExpense expense) async {
     try {
-      await _client.from('online_expenses').insert(expense.toJson());
+      final data = expense.toJson();
+      final email = Supabase.instance.client.auth.currentUser?.email;
+      if (email != null) data['last_edited_email'] = email;
+      await _client.from('online_expenses').insert(data);
     } catch (e) {
       debugPrint('Error saving online expense: $e');
       rethrow;
@@ -104,9 +113,12 @@ class DatabaseService {
 
   Future<void> updateOnlineExpense(OnlineExpense expense) async {
     try {
+      final data = expense.toJson();
+      final email = Supabase.instance.client.auth.currentUser?.email;
+      if (email != null) data['last_edited_email'] = email;
       await _client
           .from('online_expenses')
-          .update(expense.toJson())
+          .update(data)
           .eq('id', expense.id!);
     } catch (e) {
       debugPrint('Error updating online expense: $e');
@@ -144,7 +156,10 @@ class DatabaseService {
 
   Future<void> saveCreditExpense(CreditExpense expense) async {
     try {
-      await _client.from('credit_expenses').insert(expense.toJson());
+      final data = expense.toJson();
+      final email = Supabase.instance.client.auth.currentUser?.email;
+      if (email != null) data['last_edited_email'] = email;
+      await _client.from('credit_expenses').insert(data);
     } catch (e) {
       debugPrint('Error saving credit expense: $e');
       rethrow;
@@ -409,6 +424,10 @@ class DatabaseService {
         'payment_method': status == CreditExpenseStatus.paid ? paymentMethod : null,
         'payment_note': status == CreditExpenseStatus.paid ? paymentNote : null,
       };
+      final email = Supabase.instance.client.auth.currentUser?.email;
+      if (email != null) {
+        payload['last_edited_email'] = email;
+      }
       await _client.from('credit_expenses').update(payload).eq('id', id);
     } catch (e) {
       debugPrint('Error updating credit expense status: $e');
@@ -428,11 +447,33 @@ class DatabaseService {
         'payment_method': status == CreditExpenseStatus.paid ? paymentMethod : null,
         'payment_note': status == CreditExpenseStatus.paid ? paymentNote : null,
       };
+      final email = Supabase.instance.client.auth.currentUser?.email;
+      if (email != null) {
+        payload['last_edited_email'] = email;
+      }
       for (var id in ids) {
         await _client.from('credit_expenses').update(payload).eq('id', id);
       }
     } catch (e) {
       debugPrint('Error updating credit expenses status: $e');
+      rethrow;
+    }
+  }
+
+  /// Updates the supplier (and optional supplier_id) for a credit expense. Used when moving an "Others" entry to a real supplier.
+  Future<void> updateCreditExpenseSupplier(String id, String supplierName, String? supplierId) async {
+    try {
+      final Map<String, dynamic> payload = {
+        'supplier': supplierName,
+        'supplier_id': (supplierId != null && supplierId.isNotEmpty) ? supplierId : null,
+      };
+      final email = Supabase.instance.client.auth.currentUser?.email;
+      if (email != null) {
+        payload['last_edited_email'] = email;
+      }
+      await _client.from('credit_expenses').update(payload).eq('id', id);
+    } catch (e) {
+      debugPrint('Error updating credit expense supplier: $e');
       rethrow;
     }
   }
@@ -611,7 +652,10 @@ class DatabaseService {
 
   Future<void> saveCardSale(CardSale sale) async {
     try {
-      await _client.from('card_sales').insert(sale.toJson());
+      final data = sale.toJson();
+      final email = Supabase.instance.client.auth.currentUser?.email;
+      if (email != null) data['last_edited_email'] = email;
+      await _client.from('card_sales').insert(data);
     } catch (e) {
       debugPrint('Error saving card sale: $e');
       rethrow;
@@ -711,7 +755,10 @@ class DatabaseService {
 
   Future<void> saveOnlineSale(OnlineSale sale) async {
     try {
-      await _client.from('online_sales').insert(sale.toJson());
+      final data = sale.toJson();
+      final email = Supabase.instance.client.auth.currentUser?.email;
+      if (email != null) data['last_edited_email'] = email;
+      await _client.from('online_sales').insert(data);
     } catch (e) {
       debugPrint('Error saving online sale: $e');
       rethrow;
@@ -748,7 +795,10 @@ class DatabaseService {
 
   Future<void> saveQrPayment(QrPayment payment) async {
     try {
-      await _client.from('qr_payments').insert(payment.toJson());
+      final data = payment.toJson();
+      final email = Supabase.instance.client.auth.currentUser?.email;
+      if (email != null) data['last_edited_email'] = email;
+      await _client.from('qr_payments').insert(data);
     } catch (e) {
       debugPrint('Error saving QR payment: $e');
       rethrow;
@@ -760,9 +810,12 @@ class DatabaseService {
       if (payment.id == null) {
         throw Exception('Payment ID is required for update');
       }
+      final data = payment.toJson();
+      final email = Supabase.instance.client.auth.currentUser?.email;
+      if (email != null) data['last_edited_email'] = email;
       await _client
           .from('qr_payments')
-          .update(payment.toJson())
+          .update(data)
           .eq('id', payment.id!);
     } catch (e) {
       debugPrint('Error updating QR payment: $e');
@@ -1035,7 +1088,10 @@ class DatabaseService {
 
   Future<void> saveDue(Due due) async {
     try {
-      await _client.from('dues').insert(due.toJson());
+      final data = due.toJson();
+      final email = Supabase.instance.client.auth.currentUser?.email;
+      if (email != null) data['last_edited_email'] = email;
+      await _client.from('dues').insert(data);
     } catch (e) {
       debugPrint('Error saving due: $e');
       rethrow;
@@ -1053,13 +1109,35 @@ class DatabaseService {
 
   Future<void> updateDueStatus(String dueId, bool isReceived) async {
     try {
-      await _client
-          .from('dues')
-          .update({'status': isReceived ? 'received' : 'not_received'})
-          .eq('id', dueId);
+      final Map<String, dynamic> payload = {
+        'status': isReceived ? 'received' : 'not_received',
+      };
+      final email = Supabase.instance.client.auth.currentUser?.email;
+      if (email != null) {
+        payload['last_edited_email'] = email;
+        payload['status_last_edited_email'] = email;
+      }
+      await _client.from('dues').update(payload).eq('id', dueId);
     } catch (e) {
       debugPrint('Error updating due status: $e');
       rethrow;
+    }
+  }
+
+  /// All dues for the branch that are not yet received (receivables) or paid (payables).
+  Future<List<Due>> getPendingDues(String branchId) async {
+    try {
+      final response = await _client
+          .from('dues')
+          .select()
+          .eq('branch_id', branchId)
+          .eq('status', 'not_received')
+          .order('date', ascending: false)
+          .order('created_at', ascending: false);
+      return (response as List).map((json) => Due.fromJson(json)).toList();
+    } catch (e) {
+      debugPrint('Error fetching pending dues: $e');
+      return [];
     }
   }
 
@@ -1089,6 +1167,10 @@ class DatabaseService {
       
       // Prepare the data with ID if it exists
       final closingData = closing.toJson();
+      final email = Supabase.instance.client.auth.currentUser?.email;
+      if (email != null) {
+        closingData['last_edited_email'] = email;
+      }
       String? closingId;
       if (existing != null && existing.id != null) {
         closingData['id'] = existing.id;
@@ -1494,7 +1576,10 @@ class DatabaseService {
 
   Future<void> saveFixedExpense(FixedExpense expense) async {
     try {
-      await _client.from('fixed_expenses').insert(expense.toJson());
+      final data = expense.toJson();
+      final email = Supabase.instance.client.auth.currentUser?.email;
+      if (email != null) data['last_edited_email'] = email;
+      await _client.from('fixed_expenses').insert(data);
     } catch (e) {
       debugPrint('Error saving fixed expense: $e');
       rethrow;

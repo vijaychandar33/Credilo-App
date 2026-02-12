@@ -10,6 +10,7 @@ class QrPayment {
   final double? amountAfterMidnight; // Sales after 12 AM until closing time
   final String? notes;
   final DateTime? createdAt;
+  final String? lastEditedEmail;
 
   QrPayment({
     this.id,
@@ -23,6 +24,7 @@ class QrPayment {
     this.amountAfterMidnight,
     this.notes,
     this.createdAt,
+    this.lastEditedEmail,
   });
 
   Map<String, dynamic> toJson() {
@@ -38,6 +40,7 @@ class QrPayment {
       if (amountAfterMidnight != null) 'amount_after_midnight': amountAfterMidnight,
       'notes': notes,
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+      if (lastEditedEmail != null) 'last_edited_email': lastEditedEmail,
     };
   }
 
@@ -60,6 +63,7 @@ class QrPayment {
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'])
           : null,
+      lastEditedEmail: json['last_edited_email']?.toString(),
     );
   }
 }

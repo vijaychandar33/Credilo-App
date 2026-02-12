@@ -322,7 +322,7 @@ class _CardScreenState extends State<CardScreen> {
       appBar: AppBar(
         title: Text('Card Sales - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
         actions: [
-          if (_authService.canAccessCardOrUpiManagement())
+          if (_authService.canAccessManagementInCurrentBranch)
             IconButton(
               icon: const Icon(Icons.credit_card),
               onPressed: () {
@@ -461,10 +461,6 @@ class _CardScreenState extends State<CardScreen> {
                             errorText: showMachineError ? 'Select machine' : null,
                           ),
                           items: [
-                            const DropdownMenuItem(
-                              value: 'others',
-                              child: Text('Others'),
-                            ),
                             ..._machines.map((machine) {
                               final machineKey = _machineKey(machine);
                               return DropdownMenuItem(
@@ -472,6 +468,10 @@ class _CardScreenState extends State<CardScreen> {
                                 child: Text(_machineLabel(machine)),
                               );
                             }),
+                            const DropdownMenuItem(
+                              value: 'others',
+                              child: Text('Others'),
+                            ),
                           ],
                           onChanged: (value) {
                             setState(() {

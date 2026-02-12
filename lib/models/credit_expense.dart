@@ -56,6 +56,7 @@ class CreditExpense {
   final String? paymentNote;   // Required when paymentMethod == 'others'
   final DateTime? createdAt;
   final Map<String, dynamic>? branchInfo; // For branch name/location
+  final String? lastEditedEmail;
 
   CreditExpense({
     this.id,
@@ -72,6 +73,7 @@ class CreditExpense {
     this.paymentNote,
     this.createdAt,
     this.branchInfo,
+    this.lastEditedEmail,
   });
 
   Map<String, dynamic> toJson() {
@@ -89,6 +91,7 @@ class CreditExpense {
       'payment_method': paymentMethod,
       'payment_note': paymentNote,
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+      if (lastEditedEmail != null) 'last_edited_email': lastEditedEmail,
     };
   }
 
@@ -118,6 +121,7 @@ class CreditExpense {
           ? DateTime.parse(json['created_at'])
           : null,
       branchInfo: branchInfo,
+      lastEditedEmail: json['last_edited_email']?.toString(),
     );
   }
 

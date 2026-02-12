@@ -185,17 +185,20 @@ CREATE TABLE branch_users (
   UNIQUE(branch_id, user_id)
 );
 
--- Pending users table (for storing user invitations before account creation)
+-- Pending users table (for storing user invitations before account creation).
+-- Multiple rows per email allowed (one per branch) so new users can be assigned
+-- to multiple branches/roles before first login; UNIQUE(email, branch_id).
 CREATE TABLE pending_users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  email TEXT NOT NULL UNIQUE,
+  email TEXT NOT NULL,
   name TEXT NOT NULL,
   phone TEXT,
   role TEXT NOT NULL CHECK (role IN ('business_owner', 'business_owner_read_only', 'owner', 'owner_read_only', 'manager', 'staff')),
   branch_id UUID REFERENCES branches(id) ON DELETE CASCADE,
   business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
   created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(email, branch_id)
 );
 
 -- Enable Row Level Security on pending_users table

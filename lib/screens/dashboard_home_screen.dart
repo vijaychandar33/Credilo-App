@@ -114,6 +114,9 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> with WidgetsB
       double totalCardSales = 0.0;
       double totalOnlineSales = 0.0;
       double totalQrPayments = 0.0;
+      // Overview for today:
+      // - totalReceivables: only RECEIVED receivables (counted in sales)
+      // - totalPayables: only PAID payables (counted in expenses)
       double totalReceivables = 0.0;
       double totalPayables = 0.0;
       double totalCashClosing = 0.0;
@@ -142,12 +145,16 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> with WidgetsB
         totalQrPayments += qrTotal;
 
         final dues = await _dbService.getDues(today, branch.id);
-        totalReceivables += dues
-            .where((d) => d.type == DueType.receivable)
+        final branchReceivablesReceived = dues
+            .where((d) => d.type == DueType.receivable && d.isReceived)
             .fold(0.0, (sum, d) => sum + d.amount);
-        totalPayables += dues
-            .where((d) => d.type == DueType.payable)
+        final branchPayablesPaid = dues
+            .where((d) => d.type == DueType.payable && d.isReceived)
             .fold(0.0, (sum, d) => sum + d.amount);
+        totalReceivables += branchReceivablesReceived;
+        totalPayables += branchPayablesPaid;
+        // Paid payables should also be counted as expenses for today
+        totalExpenses += branchPayablesPaid;
 
         // Calculate cash sales for this branch: (Cash in Hand - Opening Balance) + Total Cash Expenses
         final cashCounts = await _dbService.getCashCounts(today, branch.id);

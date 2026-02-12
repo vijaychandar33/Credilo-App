@@ -375,28 +375,23 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         try {
           debugPrint('Loading pending users for business: $businessId');
           
-          // Query pending users - simplified, no branch join needed
           final pendingResponse = await Supabase.instance.client
               .from('pending_users')
-              .select('id, name, email, business_id')
+              .select('id, name, email, business_id, branch_id, role')
               .eq('business_id', businessId);
           
           final pendingList = pendingResponse as List;
-          debugPrint('Found ${pendingList.length} pending users for business $businessId');
+          debugPrint('Found ${pendingList.length} pending rows for business $businessId');
           
           for (var pending in pendingList) {
             final pendingEmail = (pending['email'] as String? ?? '').toLowerCase().trim();
             
-            // Skip if this pending user already exists as a verified user
             if (existingUserEmails.contains(pendingEmail)) {
-              debugPrint('Skipping pending user ${pending['name']} (${pending['email']}) - already exists as verified user');
-              // Also delete the pending_users record since user is already verified
               try {
                 await Supabase.instance.client
                     .from('pending_users')
                     .delete()
                     .eq('id', pending['id']);
-                debugPrint('Deleted stale pending_users record for ${pending['email']}');
               } catch (e) {
                 debugPrint('Error deleting stale pending_users record: $e');
               }
@@ -407,8 +402,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
               'id': pending['id'],
               'email': pending['email'],
               'name': pending['name'],
+              'branch_id': pending['branch_id'],
+              'role': pending['role'],
             });
-            debugPrint('Added pending user: ${pending['name']} (${pending['email']})');
           }
         } catch (e) {
           debugPrint('Error loading pending users for business $businessId: $e');
@@ -417,12 +413,30 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         }
       }
 
-      debugPrint('Total pending users collected: ${pendingUsersList.length}');
+      // Group by email so one entry per person (with list of branch assignments)
+      final Map<String, Map<String, dynamic>> byEmail = {};
+      for (var row in pendingUsersList) {
+        final email = (row['email'] as String? ?? '').toLowerCase().trim();
+        if (email.isEmpty) continue;
+        if (!byEmail.containsKey(email)) {
+          byEmail[email] = {
+            'email': row['email'] as String,
+            'name': row['name'] as String,
+            'assignments': <Map<String, dynamic>>[],
+          };
+        }
+        (byEmail[email]!['assignments'] as List<Map<String, dynamic>>).add({
+          'id': row['id'],
+          'branch_id': row['branch_id'],
+          'role': row['role'],
+        });
+      }
+      final groupedPending = byEmail.values.toList();
+      debugPrint('Total pending rows: ${pendingUsersList.length}, grouped into ${groupedPending.length} pending user(s)');
       if (mounted) {
         setState(() {
-          _pendingUsers = pendingUsersList;
+          _pendingUsers = groupedPending;
         });
-        debugPrint('Loaded ${_pendingUsers.length} pending users into state');
       }
     } catch (e) {
       debugPrint('Error loading pending users: $e');
@@ -438,145 +452,201 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   void _showAddUserDialog() {
     final nameController = TextEditingController();
     final emailController = TextEditingController();
-    Branch? selectedBranch;
-    UserRole? selectedRole;
     bool makeBusinessOwner = false;
     bool makeBusinessOwnerReadOnly = false;
+    // Same structure as Edit: branchId -> { branch, role, branch_user_id }
+    final Map<String, Map<String, dynamic>> branchAssignments = {};
 
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           title: const Text('Add User'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Name *',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                    TextField(
-                      controller: emailController,
-                      decoration: const InputDecoration(
-                        labelText: 'Email *',
-                        hintText: 'user@example.com',
-                        prefixIcon: Icon(Icons.email),
-                        border: OutlineInputBorder(),
-                      ),
-                      keyboardType: TextInputType.emailAddress,
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Name *',
+                      border: OutlineInputBorder(),
                     ),
-                    const SizedBox(height: 12),
-                    Card(
-                      color: AppColors.primary.withValues(alpha: 0.1),
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.info_outline, color: AppColors.primary, size: 20),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'A verification code will be sent to the user\'s email at the time of login.',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.textSecondary,
-                                ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: emailController,
+                    decoration: const InputDecoration(
+                      labelText: 'Email *',
+                      hintText: 'user@example.com',
+                      prefixIcon: Icon(Icons.email),
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: TextInputType.emailAddress,
+                  ),
+                  const SizedBox(height: 12),
+                  Card(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.info_outline, color: AppColors.primary, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'A verification code will be sent to the user\'s email at the time of login.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary,
                               ),
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
-                if (_isBusinessOwner) ...[
-                  const SizedBox(height: 12),
-                  CheckboxListTile(
-                    title: const Text('Make Business Owner'),
-                    subtitle: const Text('User will have full access to all branches and can manage users'),
-                    value: makeBusinessOwner,
-                    onChanged: (value) {
-                      setDialogState(() {
-                        makeBusinessOwner = value ?? false;
-                        // If making business owner, disable read-only and set role to owner
-                        if (makeBusinessOwner) {
-                          makeBusinessOwnerReadOnly = false;
-                          if (_allBranches.isNotEmpty) {
-                          selectedBranch = _allBranches.first;
-                          selectedRole = UserRole.owner;
+                  ),
+                  if (_isBusinessOwner) ...[
+                    const SizedBox(height: 16),
+                    CheckboxListTile(
+                      title: const Text('Make Business Owner'),
+                      subtitle: const Text('User will have full access to all branches and can manage users'),
+                      value: makeBusinessOwner,
+                      onChanged: (value) {
+                        setDialogState(() {
+                          makeBusinessOwner = value ?? false;
+                          if (makeBusinessOwner) {
+                            makeBusinessOwnerReadOnly = false;
                           }
-                        }
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  CheckboxListTile(
-                    title: const Text('Make Business Owner (Read-Only)'),
-                    subtitle: const Text('User will have read-only access to all branches but cannot manage users'),
-                    value: makeBusinessOwnerReadOnly,
-                    onChanged: (value) {
-                      setDialogState(() {
-                        makeBusinessOwnerReadOnly = value ?? false;
-                        // If making read-only business owner, disable full business owner
-                        if (makeBusinessOwnerReadOnly) {
-                          makeBusinessOwner = false;
-                          if (_allBranches.isNotEmpty) {
-                            selectedBranch = _allBranches.first;
-                            selectedRole = UserRole.owner;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    CheckboxListTile(
+                      title: const Text('Make Business Owner (Read-Only)'),
+                      subtitle: const Text('User will have read-only access to all branches but cannot manage users'),
+                      value: makeBusinessOwnerReadOnly,
+                      onChanged: (value) {
+                        setDialogState(() {
+                          makeBusinessOwnerReadOnly = value ?? false;
+                          if (makeBusinessOwnerReadOnly) {
+                            makeBusinessOwner = false;
                           }
-                        }
-                      });
-                    },
-                  ),
+                        });
+                      },
+                    ),
+                  ],
+                  if (!makeBusinessOwner && !makeBusinessOwnerReadOnly) ...[
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Branch Assignments:',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    const SizedBox(height: 8),
+                    ..._allBranches.map((branch) {
+                      final existingAssignment = branchAssignments[branch.id];
+                      final isAssigned = existingAssignment != null;
+                      final dbRole = isAssigned ? (existingAssignment['role'] as String).toLowerCase() : null;
+                      UserRole currentRole = isAssigned && dbRole != null
+                          ? (() {
+                              if (dbRole == 'business_owner' || dbRole == 'business_owner_read_only') {
+                                return UserRole.owner;
+                              }
+                              return UserRole.values.firstWhere(
+                                (r) => r.toString().split('.').last == dbRole,
+                                orElse: () => UserRole.staff,
+                              );
+                            })()
+                          : (_isBusinessOwner ? UserRole.owner : UserRole.staff);
+
+                      return StatefulBuilder(
+                        builder: (context, setItemState) => Card(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Checkbox(
+                                      value: isAssigned,
+                                      onChanged: (value) {
+                                        setItemState(() {
+                                          if (value == true) {
+                                            branchAssignments[branch.id] = {
+                                              'branch': branch,
+                                              'role': _isBusinessOwner
+                                                  ? _roleToDbString(UserRole.owner)
+                                                  : _roleToDbString(UserRole.staff),
+                                              'branch_user_id': null,
+                                            };
+                                          } else {
+                                            branchAssignments.remove(branch.id);
+                                          }
+                                        });
+                                        setDialogState(() {});
+                                      },
+                                    ),
+                                    Expanded(
+                                      child: Text(
+                                        branch.name,
+                                        style: const TextStyle(fontWeight: FontWeight.w600),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (isAssigned) ...[
+                                  const SizedBox(height: 8),
+                                  DropdownButtonFormField<UserRole>(
+                                    initialValue: currentRole,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Role',
+                                      border: OutlineInputBorder(),
+                                      isDense: true,
+                                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    ),
+                                    isExpanded: true,
+                                    items: (_isBusinessOwner
+                                            ? [
+                                                UserRole.owner,
+                                                UserRole.ownerReadOnly,
+                                                UserRole.manager,
+                                                UserRole.staff
+                                              ].where((role) =>
+                                                  role != UserRole.businessOwner &&
+                                                  role != UserRole.businessOwnerReadOnly)
+                                            : [UserRole.manager, UserRole.staff])
+                                        .map((role) {
+                                      String roleName = _formatRoleName(role);
+                                      return DropdownMenuItem(
+                                        value: role,
+                                        child: Text(roleName),
+                                      );
+                                    }).toList(),
+                                    onChanged: (role) {
+                                      setItemState(() {
+                                        if (role != null) {
+                                          branchAssignments[branch.id]!['role'] = _roleToDbString(role);
+                                          currentRole = role;
+                                        }
+                                      });
+                                      setDialogState(() {});
+                                    },
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
                 ],
-                if (!makeBusinessOwner && !makeBusinessOwnerReadOnly) ...[
-                const SizedBox(height: 12),
-                DropdownButtonFormField<Branch>(
-                  initialValue: selectedBranch,
-                  decoration: const InputDecoration(
-                    labelText: 'Branch *',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: _allBranches.map((branch) {
-                    return DropdownMenuItem(
-                      value: branch,
-                      child: Text(branch.name),
-                    );
-                  }).toList(),
-                  onChanged: (branch) {
-                    setDialogState(() {
-                      selectedBranch = branch;
-                    });
-                  },
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<UserRole>(
-                  initialValue: selectedRole,
-                  decoration: const InputDecoration(
-                    labelText: 'Role *',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: (_isBusinessOwner 
-                    ? [UserRole.owner, UserRole.ownerReadOnly, UserRole.manager, UserRole.staff]
-                    : [UserRole.manager, UserRole.staff]
-                  ).map((role) {
-                    String roleName = _formatRoleName(role);
-                    return DropdownMenuItem(
-                      value: role,
-                      child: Text(roleName),
-                    );
-                  }).toList(),
-                  onChanged: (role) {
-                    setDialogState(() {
-                      selectedRole = role;
-                    });
-                  },
-                ),
-                ],
-              ],
+              ),
             ),
           ),
           actions: [
@@ -588,12 +658,22 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
               onPressed: () async {
                 if (nameController.text.isEmpty ||
                     emailController.text.isEmpty ||
-                    !emailController.text.contains('@') ||
-                    (!makeBusinessOwner && !makeBusinessOwnerReadOnly && (selectedBranch == null || selectedRole == null))) {
+                    !emailController.text.contains('@')) {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('Please fill all required fields'),
+                        content: Text('Please fill Name and Email'),
+                        backgroundColor: AppColors.error,
+                      ),
+                    );
+                  }
+                  return;
+                }
+                if (!makeBusinessOwner && !makeBusinessOwnerReadOnly && branchAssignments.isEmpty) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Select at least one branch and role'),
                         backgroundColor: AppColors.error,
                       ),
                     );
@@ -604,10 +684,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 await _addUser(
                   nameController.text,
                   emailController.text,
-                  (makeBusinessOwner || makeBusinessOwnerReadOnly) ? _allBranches.first : selectedBranch!,
-                  (makeBusinessOwner || makeBusinessOwnerReadOnly) ? UserRole.owner : selectedRole!,
                   makeBusinessOwner: makeBusinessOwner,
                   makeBusinessOwnerReadOnly: makeBusinessOwnerReadOnly,
+                  branchAssignments: branchAssignments,
                 );
                 if (context.mounted) {
                   Navigator.pop(context);
@@ -623,59 +702,83 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
   Future<void> _addUser(
     String name,
-    String email,
-    Branch branch,
-    UserRole role, {
+    String email, {
     bool makeBusinessOwner = false,
     bool makeBusinessOwnerReadOnly = false,
+    required Map<String, Map<String, dynamic>> branchAssignments,
   }) async {
     try {
       final supabase = Supabase.instance.client;
       String userId;
 
+      // Use first branch for business ID when needed (business owner or pending user with assignments)
+      Branch? firstBranch;
+      if (makeBusinessOwner || makeBusinessOwnerReadOnly) {
+        firstBranch = _allBranches.isNotEmpty ? _allBranches.first : null;
+      } else if (branchAssignments.isNotEmpty) {
+        firstBranch = branchAssignments.values.first['branch'] as Branch;
+      }
+      if (firstBranch == null && (makeBusinessOwner || makeBusinessOwnerReadOnly || branchAssignments.isEmpty)) {
+        throw Exception('No branch available');
+      }
+
       // Step 1: Check if user already exists in database
       final existingUserResponse = await supabase
-              .from('users')
-              .select()
-              .eq('email', email)
-              .maybeSingle();
-          
+          .from('users')
+          .select()
+          .eq('email', email)
+          .maybeSingle();
+
       if (existingUserResponse != null) {
-        // User already exists in database
         userId = existingUserResponse['id'] as String;
         debugPrint('User already exists in database: $userId');
-          } else {
-        // Step 2: User doesn't exist - store pending user info
-        // Get current user ID for created_by field
+      } else {
+        // Step 2: User doesn't exist - store pending user info (one row per branch)
         final currentUser = supabase.auth.currentUser;
         if (currentUser == null) {
           throw Exception('Admin must be logged in to add users');
         }
 
-        // Get business ID from branch
-        final branchData = await supabase
-            .from('branches')
-            .select('business_id')
-            .eq('id', branch.id)
-            .single();
-        
-        final businessId = branchData['business_id'] as String;
-        final roleToStore = makeBusinessOwner 
-            ? 'business_owner' 
-            : (makeBusinessOwnerReadOnly 
-                ? 'business_owner_read_only' 
-                : _roleToDbString(role));
-
-        // Store pending user info
-        await supabase.from('pending_users').insert({
-          'email': email,
-          'name': name,
-          'phone': null,
-          'role': roleToStore,
-          'branch_id': branch.id,
-          'business_id': businessId,
-          'created_by': currentUser.id,
-        });
+        if (makeBusinessOwner || makeBusinessOwnerReadOnly) {
+          final branchData = await supabase
+              .from('branches')
+              .select('business_id')
+              .eq('id', firstBranch!.id)
+              .single();
+          final businessId = branchData['business_id'] as String;
+          final roleToStore = makeBusinessOwner ? 'business_owner' : 'business_owner_read_only';
+          await supabase.from('pending_users').insert({
+            'email': email,
+            'name': name,
+            'phone': null,
+            'role': roleToStore,
+            'branch_id': firstBranch.id,
+            'business_id': businessId,
+            'created_by': currentUser.id,
+          });
+        } else {
+          // One pending_users row per branch (schema allows UNIQUE(email, branch_id))
+          for (var entry in branchAssignments.entries) {
+            final assignment = entry.value;
+            final branch = assignment['branch'] as Branch;
+            final role = assignment['role'] as String;
+            final branchData = await supabase
+                .from('branches')
+                .select('business_id')
+                .eq('id', branch.id)
+                .single();
+            final businessId = branchData['business_id'] as String;
+            await supabase.from('pending_users').insert({
+              'email': email,
+              'name': name,
+              'phone': null,
+              'role': role,
+              'branch_id': branch.id,
+              'business_id': businessId,
+              'created_by': currentUser.id,
+            });
+          }
+        }
 
         debugPrint('Stored pending user info for: $email');
 
@@ -687,46 +790,36 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
             duration: Duration(seconds: 5),
           ),
         );
-
-        // Reload data after a short delay
         await Future.delayed(const Duration(milliseconds: 300));
         await _loadData();
-        return; // Exit early - user will be created when they log in
+        return;
       }
 
-      // Step 3: If making business owner (full or read-only), assign role to all branches of the business
+      // Step 3: Existing user - assign branches
       if (makeBusinessOwner || makeBusinessOwnerReadOnly) {
         try {
-          // Get business ID from the branch
           final branchData = await supabase
               .from('branches')
               .select('business_id')
-              .eq('id', branch.id)
+              .eq('id', firstBranch!.id)
               .single();
-          
           final businessId = branchData['business_id'] as String;
           final roleToAssign = makeBusinessOwner ? 'business_owner' : 'business_owner_read_only';
-          
-          // Get all branches for this business
           final allBranches = await supabase
               .from('branches')
               .select('id')
               .eq('business_id', businessId);
-          
-          // Assign role to user for all branches of this business
+
           for (var branchItem in allBranches as List) {
             final branchId = branchItem['id'] as String;
-            
-            // Check if user is already assigned to this branch
             final existingBranchUser = await supabase
                 .from('branch_users')
                 .select()
                 .eq('user_id', userId)
                 .eq('branch_id', branchId)
                 .maybeSingle();
-            
+
             if (existingBranchUser != null) {
-              // Update existing record to the selected role
               await supabase
                   .from('branch_users')
                   .update({
@@ -735,7 +828,6 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                   })
                   .eq('id', existingBranchUser['id']);
             } else {
-              // Insert new record with the selected role
               await supabase.from('branch_users').insert({
                 'user_id': userId,
                 'branch_id': branchId,
@@ -744,55 +836,49 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
               });
             }
           }
-          
-          final roleName = makeBusinessOwner ? 'business owner' : 'business owner (read-only)';
-          debugPrint('Made user $userId a $roleName of business $businessId (assigned to ${(allBranches as List).length} branches)');
+          debugPrint('Made user $userId business owner (assigned to ${(allBranches as List).length} branches)');
         } catch (e) {
           debugPrint('Error making user business owner: $e');
-          // Continue - user was still created and assigned to branch
         }
       } else {
-        // Step 4: Check if user is already assigned to this branch
-        // Get business_id from branch
-        final branchData = await supabase
-            .from('branches')
-            .select('business_id')
-            .eq('id', branch.id)
-            .single();
-        
-        final businessId = branchData['business_id'] as String;
-        
-        final existingBranchUser = await supabase
-            .from('branch_users')
-            .select()
-            .eq('user_id', userId)
-            .eq('branch_id', branch.id)
-            .maybeSingle();
+        for (var entry in branchAssignments.entries) {
+          final branchId = entry.key;
+          final assignment = entry.value;
+          final role = assignment['role'] as String;
+          final branchData = await supabase
+              .from('branches')
+              .select('business_id')
+              .eq('id', branchId)
+              .single();
+          final businessId = branchData['business_id'] as String;
 
-        if (existingBranchUser != null) {
-          // User already assigned to this branch, just update role if different
-          if (existingBranchUser['role'] != _roleToDbString(role)) {
-            await supabase
-                .from('branch_users')
-                .update({
-                  'role': _roleToDbString(role),
-                  'business_id': businessId,
-                })
-                .eq('id', existingBranchUser['id']);
-            debugPrint('Updated user role in branch');
+          final existingBranchUser = await supabase
+              .from('branch_users')
+              .select()
+              .eq('user_id', userId)
+              .eq('branch_id', branchId)
+              .maybeSingle();
+
+          if (existingBranchUser != null) {
+            if (existingBranchUser['role'] != role) {
+              await supabase
+                  .from('branch_users')
+                  .update({
+                    'role': role,
+                    'business_id': businessId,
+                  })
+                  .eq('id', existingBranchUser['id']);
+            }
           } else {
-            debugPrint('User already assigned to branch with same role');
+            await supabase.from('branch_users').insert({
+              'user_id': userId,
+              'branch_id': branchId,
+              'business_id': businessId,
+              'role': role,
+            });
           }
-        } else {
-          // Assign user to branch
-          await supabase.from('branch_users').insert({
-            'user_id': userId,
-            'branch_id': branch.id,
-            'business_id': businessId,
-            'role': _roleToDbString(role),
-          });
-          debugPrint('Assigned user to branch');
         }
+        debugPrint('Assigned user to ${branchAssignments.length} branch(es)');
       }
 
       if (!mounted) return;
@@ -802,20 +888,16 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           backgroundColor: AppColors.success,
         ),
       );
-
-      // Reload data after a short delay to ensure database is updated
       await Future.delayed(const Duration(milliseconds: 300));
       await _loadData();
     } catch (e) {
       debugPrint('Error adding user: $e');
       if (!mounted) return;
-      
       final errorMessage = ErrorMessageHelper.getUserFriendlyError(e);
-      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(errorMessage),
-                        backgroundColor: AppColors.error,
+          backgroundColor: AppColors.error,
           duration: const Duration(seconds: 5),
         ),
       );
@@ -1823,7 +1905,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                         ),
                       );
                       } else {
-                        // Pending user - simplified display
+                        // Pending user - one card per email, expandable to show branch assignments
                         final pendingIndex = index - _users.length;
                         if (pendingIndex >= _pendingUsers.length) {
                           return const SizedBox.shrink();
@@ -1832,21 +1914,31 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                         final pendingData = _pendingUsers[pendingIndex];
                         final pendingName = pendingData['name'] as String;
                         final pendingEmail = pendingData['email'] as String;
-                        final pendingId = pendingData['id'] as String;
+                        final assignments = pendingData['assignments'] as List<Map<String, dynamic>>;
+                        
+                        Branch? branchForId(String? branchId) {
+                          if (branchId == null) return null;
+                          try {
+                            return _allBranches.firstWhere((b) => b.id == branchId);
+                          } catch (_) {
+                            return null;
+                          }
+                        }
                         
                         return Card(
                           margin: const EdgeInsets.only(bottom: 12),
                           color: AppColors.primary.withValues(alpha: 0.1),
-                          child: ListTile(
+                          child: ExpansionTile(
                             leading: CircleAvatar(
                               backgroundColor: AppColors.primary.withValues(alpha: 0.3),
-                              child: Text(pendingName[0].toUpperCase()),
+                              child: Text(pendingName.isNotEmpty ? pendingName[0].toUpperCase() : '?'),
                             ),
                             title: Row(
                               children: [
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Row(
                                         children: [
@@ -1878,55 +1970,50 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                 ),
                                 IconButton(
                                   icon: const Icon(Icons.delete, color: AppColors.error),
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
                                   onPressed: () {
                                     showDialog(
                                       context: context,
                                       builder: (context) => AlertDialog(
                                         title: const Text('Delete Pending User'),
                                         content: Text(
-                                          'Remove pending invitation for $pendingName?',
+                                          'Remove all pending invitations for $pendingName?',
                                         ),
                                         actions: [
                                           TextButton(
                                             onPressed: () => Navigator.pop(context),
                                             child: const Text('Cancel'),
                                           ),
-                                            ElevatedButton(
-                                              onPressed: () async {
-                                                final navigator = Navigator.of(context);
-                                                final messenger = ScaffoldMessenger.of(context);
-                                                navigator.pop();
-                                                
-                                                try {
-                                                  await Supabase.instance.client
-                                                      .from('pending_users')
-                                                      .delete()
-                                                      .eq('id', pendingId);
-                                                  
-                                                  if (!mounted) return;
-                                                  messenger.showSnackBar(
-                                                    const SnackBar(
-                                                      content: Text('Pending user removed'),
-                                                      backgroundColor: AppColors.success,
-                                                    ),
-                                                  );
-                                                  await _loadData();
-                                                } catch (e) {
-                                                  debugPrint('Error deleting pending user: $e');
-                                                  if (!mounted) return;
-                                                  final errorMessage = ErrorMessageHelper.getUserFriendlyError(e);
-                                                  messenger.showSnackBar(
-                                                    SnackBar(
-                                                      content: Text(errorMessage),
-                                                      backgroundColor: AppColors.error,
-                                                    ),
-                                                  );
-                                                }
-                                              },
+                                          ElevatedButton(
+                                            onPressed: () async {
+                                              Navigator.pop(context);
+                                              final messenger = ScaffoldMessenger.of(context);
+                                              try {
+                                                await Supabase.instance.client
+                                                    .from('pending_users')
+                                                    .delete()
+                                                    .eq('email', pendingEmail);
+                                                if (!mounted) return;
+                                                messenger.showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text('Pending invitations removed'),
+                                                    backgroundColor: AppColors.success,
+                                                  ),
+                                                );
+                                                await _loadData();
+                                              } catch (e) {
+                                                debugPrint('Error deleting pending user: $e');
+                                                if (!mounted) return;
+                                                messenger.showSnackBar(
+                                                  SnackBar(
+                                                    content: Text(ErrorMessageHelper.getUserFriendlyError(e)),
+                                                    backgroundColor: AppColors.error,
+                                                  ),
+                                                );
+                                              }
+                                            },
                                             style: ElevatedButton.styleFrom(
                                               backgroundColor: AppColors.error,
+                                              foregroundColor: Colors.white,
                                             ),
                                             child: const Text('Delete'),
                                           ),
@@ -1938,6 +2025,15 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                 ),
                               ],
                             ),
+                            children: assignments.map((a) {
+                              final branch = branchForId(a['branch_id'] as String?);
+                              final role = (a['role'] as String? ?? '').toUpperCase();
+                              return ListTile(
+                                dense: true,
+                                title: Text(branch?.name ?? 'Branch'),
+                                subtitle: Text(branch?.location != null ? '${branch!.location} • $role' : role),
+                              );
+                            }).toList(),
                           ),
                         );
                       }

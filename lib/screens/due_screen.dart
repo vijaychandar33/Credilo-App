@@ -8,6 +8,7 @@ import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/delete_confirmation_dialog.dart';
 import '../utils/error_message_helper.dart';
+import 'pending_dues_screen.dart';
 
 class DueScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -343,6 +344,21 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
     return Scaffold(
       appBar: AppBar(
         title: Text('Due - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.list_alt),
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const PendingDuesScreen(),
+                ),
+              );
+              if (mounted) _loadData();
+            },
+            tooltip: 'View pending dues',
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           tabs: const [

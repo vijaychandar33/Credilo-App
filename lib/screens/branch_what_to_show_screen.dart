@@ -65,15 +65,7 @@ class _BranchWhatToShowScreenState extends State<BranchWhatToShowScreen> {
                         for (final key in BranchVisibilityKeys.all) ...[
                           if (key != BranchVisibilityKeys.all.first)
                             const Divider(height: 1),
-                          SwitchListTile(
-                            secondary: Icon(
-                              _iconFor(key),
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                            title: Text(BranchVisibilityKeys.label(key)),
-                            value: _visibility[key] ?? true,
-                            onChanged: (value) => _set(key, value),
-                          ),
+                          _buildVisibilityTile(context, key),
                         ],
                       ],
                     ),
@@ -81,6 +73,44 @@ class _BranchWhatToShowScreenState extends State<BranchWhatToShowScreen> {
                 ],
               ),
       ),
+    );
+  }
+
+  Widget _buildVisibilityTile(BuildContext context, String key) {
+    final isCashClosing = key == BranchVisibilityKeys.cashClosing;
+    final bool value = isCashClosing ? true : (_visibility[key] ?? true);
+
+    final iconColor = isCashClosing
+        ? AppColors.textTertiary
+        : Theme.of(context).colorScheme.primary;
+
+    final titleStyle = isCashClosing
+        ? TextStyle(
+            color: AppColors.textSecondary,
+            fontWeight: FontWeight.w500,
+          )
+        : null;
+
+    return SwitchListTile(
+      secondary: Icon(
+        _iconFor(key),
+        color: iconColor,
+      ),
+      title: Text(
+        BranchVisibilityKeys.label(key),
+        style: titleStyle,
+      ),
+      subtitle: isCashClosing
+          ? Text(
+              'Always shown (mandatory)',
+              style: TextStyle(
+                fontSize: 12,
+                color: AppColors.textTertiary,
+              ),
+            )
+          : null,
+      value: value,
+      onChanged: isCashClosing ? null : (v) => _set(key, v),
     );
   }
 

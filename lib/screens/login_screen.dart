@@ -134,22 +134,25 @@ class _LoginScreenState extends State<LoginScreen> {
       debugPrint('Auth: User query result: ${userResponse != null ? "found" : "not found"}');
 
       if (userResponse != null) {
-        // User exists - check if they have pending invitation (might be new role assignment)
+        // User exists - check if they have pending invitation(s) (might be new role/branch assignments)
         debugPrint('Auth: User exists, checking for pending invitation with email: $userEmail');
-        final pendingUserResponse = await supabase
-            .from('pending_users')
-            .select()
-            .eq('email', userEmail)
-            .maybeSingle()
-            .catchError((e) {
-              debugPrint('Auth: Error querying pending_users: $e');
-              return null;
-            });
+        List<Map<String, dynamic>> pendingList = [];
+        try {
+          final pendingResponse = await supabase
+              .from('pending_users')
+              .select()
+              .eq('email', userEmail);
+          final rawList = pendingResponse as List;
+          for (var r in rawList) {
+            pendingList.add(r as Map<String, dynamic>);
+          }
+        } catch (e) {
+          debugPrint('Auth: Error querying pending_users: $e');
+        }
 
-        if (pendingUserResponse != null) {
-          // User exists but has pending invitation - assign role/branch without creating user
-          debugPrint('Auth: Found pending invitation for existing user, assigning role/branch...');
-          await _assignRoleFromPending(userId, pendingUserResponse);
+        if (pendingList.isNotEmpty) {
+          debugPrint('Auth: Found ${pendingList.length} pending invitation(s) for existing user');
+          await _assignRoleFromPending(userId, pendingList);
           setState(() {
             _otpVerified = true;
           });
@@ -167,9 +170,9 @@ class _LoginScreenState extends State<LoginScreen> {
         debugPrint('Auth: User does not exist in users table, checking for pending invitation');
         debugPrint('Auth: User email from auth: "$userEmail"');
         
-        Map<String, dynamic>? pendingUserResponse;
+        List<Map<String, dynamic>> pendingUserList = [];
         try {
-          // First try exact email match
+          // First try exact email match (can return multiple rows per email)
           debugPrint('Auth: Querying pending_users with exact email: $userEmail');
           var response = await supabase
               .from('pending_users')
@@ -202,19 +205,21 @@ class _LoginScreenState extends State<LoginScreen> {
             final userEmailLower = userEmail.trim().toLowerCase();
             for (var pending in allPendingList) {
               final pendingEmail = (pending['email'] as String? ?? '').trim().toLowerCase();
-              debugPrint('Auth: Comparing "$userEmailLower" with "$pendingEmail"');
               if (pendingEmail == userEmailLower) {
-                pendingUserResponse = pending as Map<String, dynamic>;
-                debugPrint('Auth: ✓ Found pending user via case-insensitive match: ${pendingUserResponse['name']}');
-                break;
+                pendingUserList.add(pending as Map<String, dynamic>);
               }
             }
+            if (pendingUserList.isNotEmpty) {
+              debugPrint('Auth: ✓ Found ${pendingUserList.length} pending row(s) via case-insensitive match');
+            }
           } else {
-            pendingUserResponse = responseList[0] as Map<String, dynamic>;
-            debugPrint('Auth: ✓ Found pending user: ${pendingUserResponse['name']} with role: ${pendingUserResponse['role']}');
+            for (var r in responseList) {
+              pendingUserList.add(r as Map<String, dynamic>);
+            }
+            debugPrint('Auth: ✓ Found ${pendingUserList.length} pending row(s) for: ${pendingUserList[0]['name']}');
           }
           
-          if (pendingUserResponse == null) {
+          if (pendingUserList.isEmpty) {
             debugPrint('Auth: ✗ No pending user found for email: $userEmail');
           }
         } catch (e) {
@@ -224,17 +229,15 @@ class _LoginScreenState extends State<LoginScreen> {
           // Don't return null yet - let the code continue to show registration form
         }
 
-        if (pendingUserResponse != null) {
-          // User has pending invitation - create user record and assign role/branch
-          debugPrint('Auth: ✓✓✓ FOUND PENDING INVITATION ✓✓✓');
-          debugPrint('Auth: Pending user name: ${pendingUserResponse['name']}');
-          debugPrint('Auth: Pending user role: ${pendingUserResponse['role']}');
-          debugPrint('Auth: Pending user branch_id: ${pendingUserResponse['branch_id']}');
-          debugPrint('Auth: Pending user business_id: ${pendingUserResponse['business_id']}');
+        if (pendingUserList.isNotEmpty) {
+          // User has pending invitation(s) - create user record and assign all branches/roles
+          final first = pendingUserList.first;
+          debugPrint('Auth: ✓✓✓ FOUND PENDING INVITATION(S) ✓✓✓');
+          debugPrint('Auth: Pending user name: ${first['name']}, ${pendingUserList.length} branch assignment(s)');
           debugPrint('Auth: Creating user from pending invitation...');
           
           try {
-            await _createUserFromPending(userId, pendingUserResponse);
+            await _createUserFromPending(userId, pendingUserList);
             debugPrint('Auth: ✓ Successfully created user from pending invitation');
             setState(() {
               _otpVerified = true;
@@ -284,128 +287,93 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _createUserFromPending(String userId, Map<String, dynamic> pendingUser) async {
+  Future<void> _createUserFromPending(String userId, List<Map<String, dynamic>> pendingRows) async {
+    if (pendingRows.isEmpty) return;
     try {
       final supabase = Supabase.instance.client;
-      
-      // Create user record in database
+      final first = pendingRows.first;
+
+      // Create user record once
       await supabase.from('users').insert({
         'id': userId,
-        'name': pendingUser['name'],
-        'email': pendingUser['email'],
-        'phone': pendingUser['phone'],
+        'name': first['name'],
+        'email': first['email'],
+        'phone': first['phone'],
       });
 
-      // Update user metadata in Supabase Auth to set display name
       await supabase.auth.updateUser(
         UserAttributes(
           data: {
-            'full_name': pendingUser['name'],
-            'display_name': pendingUser['name'],
+            'full_name': first['name'],
+            'display_name': first['name'],
           },
         ),
       );
 
-      debugPrint('Created user record from pending invitation: ${pendingUser['name']} (ID: $userId)');
-
-      // Assign role and branch
-      final role = pendingUser['role'] as String;
-      final branchId = pendingUser['branch_id'] as String?;
-      final businessId = pendingUser['business_id'] as String?;
-
-      if (businessId == null || businessId.isEmpty) {
-        throw Exception('Business ID is missing from pending user record');
-      }
-
-      debugPrint('Pending user details - Role: $role, Branch ID: $branchId, Business ID: $businessId');
+      debugPrint('Created user record from pending: ${first['name']} (ID: $userId), ${pendingRows.length} branch assignment(s)');
 
       int branchesAssigned = 0;
+      final assignedBusinessIds = <String>{};
 
-      // If business owner or business owner read-only, assign to all branches
-      if (role == 'business_owner' || role == 'business_owner_read_only') {
-        final allBranchesResponse = await supabase
-            .from('branches')
-            .select('id')
-            .eq('business_id', businessId);
+      for (var pendingUser in pendingRows) {
+        final role = pendingUser['role'] as String;
+        final branchId = pendingUser['branch_id'] as String?;
+        final businessId = pendingUser['business_id'] as String?;
 
-        final allBranches = allBranchesResponse as List;
-        debugPrint('Found ${allBranches.length} branches for business $businessId');
-
-        if (allBranches.isEmpty) {
-          throw Exception('No branches found for business $businessId. Cannot assign business owner role.');
+        if (businessId == null || businessId.isEmpty) {
+          debugPrint('Skipping pending row with missing business_id');
+          continue;
         }
 
-        for (var branchItem in allBranches) {
-          try {
-            final bid = branchItem['id'] as String?;
-            if (bid == null || bid.isEmpty) {
-              debugPrint('Warning: Skipping branch with null or empty ID');
-              continue;
-            }
+        if (role == 'business_owner' || role == 'business_owner_read_only') {
+          if (assignedBusinessIds.contains(businessId)) continue;
+          assignedBusinessIds.add(businessId);
 
+          final allBranchesResponse = await supabase
+              .from('branches')
+              .select('id')
+              .eq('business_id', businessId);
+          final allBranches = allBranchesResponse as List;
+
+          for (var branchItem in allBranches) {
+            final bid = branchItem['id'] as String?;
+            if (bid == null || bid.isEmpty) continue;
+            try {
+              await supabase.from('branch_users').insert({
+                'user_id': userId,
+                'branch_id': bid,
+                'business_id': businessId,
+                'role': role,
+              });
+              branchesAssigned++;
+            } catch (e) {
+              debugPrint('Error assigning $role to branch $bid: $e');
+            }
+          }
+        } else {
+          if (branchId == null || branchId.isEmpty) continue;
+          try {
             await supabase.from('branch_users').insert({
               'user_id': userId,
-              'branch_id': bid,
+              'branch_id': branchId,
               'business_id': businessId,
               'role': role,
             });
             branchesAssigned++;
-            debugPrint('Successfully assigned $role role to branch $bid');
           } catch (e) {
-            debugPrint('Error assigning role to branch ${branchItem['id']}: $e');
-            // Continue with other branches even if one fails
+            debugPrint('Error assigning $role to branch $branchId: $e');
           }
         }
-        
-        if (branchesAssigned == 0) {
-          throw Exception('Failed to assign user to any branches. User record created but role assignment failed.');
-        }
-        
-        debugPrint('Successfully assigned $role role to $branchesAssigned branches for business $businessId');
-      } else {
-        // Assign to specific branch (for owner, owner_read_only, manager, staff roles)
-        if (branchId == null || branchId.isEmpty) {
-          throw Exception('Branch ID is required for non-business-owner roles');
-        }
-        
-        try {
-          debugPrint('Assigning $role role to branch $branchId for user $userId');
-          await supabase.from('branch_users').insert({
-            'user_id': userId,
-            'branch_id': branchId,
-            'business_id': businessId,
-            'role': role,
-          });
-          branchesAssigned = 1;
-          debugPrint('Successfully assigned $role role to branch $branchId');
-        } catch (e) {
-          debugPrint('Error assigning role to branch $branchId: $e');
-          debugPrint('Error details: ${e.toString()}');
-          // Re-throw with more context
-          throw Exception('Failed to assign $role role to branch $branchId: $e');
-        }
       }
 
-      // Verify that branch_users entries were created
-      final verifyResponse = await supabase
-          .from('branch_users')
-          .select('id')
-          .eq('user_id', userId);
-      
-      final verifyCount = (verifyResponse as List).length;
-      debugPrint('Verification: Found $verifyCount branch_users entries for user $userId');
-      
-      if (verifyCount == 0) {
-        throw Exception('User created but no branch assignments were created. Verification failed.');
+      if (branchesAssigned == 0) {
+        throw Exception('User created but no branch assignments were created.');
       }
 
-      // Delete pending user record only after successful assignment
-      await supabase
-          .from('pending_users')
-          .delete()
-          .eq('email', pendingUser['email']);
+      debugPrint('Verification: $branchesAssigned branch_users entries for user $userId');
 
-      debugPrint('Deleted pending user record for ${pendingUser['email']}');
+      await supabase.from('pending_users').delete().eq('email', first['email'] as String);
+      debugPrint('Deleted all pending_users rows for ${first['email']}');
     } catch (e) {
       debugPrint('Error creating user from pending invitation: $e');
       debugPrint('Stack trace: ${StackTrace.current}');
@@ -413,134 +381,92 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // Assign role and branch to existing user from pending invitation
-  Future<void> _assignRoleFromPending(String userId, Map<String, dynamic> pendingUser) async {
+  // Assign roles and branches to existing user from pending invitation(s)
+  Future<void> _assignRoleFromPending(String userId, List<Map<String, dynamic>> pendingRows) async {
+    if (pendingRows.isEmpty) return;
     try {
       final supabase = Supabase.instance.client;
+      final first = pendingRows.first;
 
-      // Update user name if different
       final currentUser = await supabase
           .from('users')
           .select('name')
           .eq('id', userId)
           .single();
-      
-      if (currentUser['name'] != pendingUser['name']) {
+
+      if (currentUser['name'] != first['name']) {
         await supabase
             .from('users')
-            .update({'name': pendingUser['name']})
+            .update({'name': first['name']})
             .eq('id', userId);
-        debugPrint('Updated user name from ${currentUser['name']} to ${pendingUser['name']}');
       }
 
-      // Update user metadata in Supabase Auth to set display name
       await supabase.auth.updateUser(
         UserAttributes(
           data: {
-            'full_name': pendingUser['name'],
-            'display_name': pendingUser['name'],
+            'full_name': first['name'],
+            'display_name': first['name'],
           },
         ),
       );
-      debugPrint('Updated auth.users metadata for display name.');
-
-      // Assign role and branch
-      final role = pendingUser['role'] as String;
-      final branchId = pendingUser['branch_id'] as String?;
-      final businessId = pendingUser['business_id'] as String?;
-
-      if (businessId == null || businessId.isEmpty) {
-        throw Exception('Business ID is missing from pending user record');
-      }
-
-      debugPrint('Pending user details - Role: $role, Branch ID: $branchId, Business ID: $businessId');
 
       int branchesAssigned = 0;
+      final assignedBusinessIds = <String>{};
 
-      // If business owner or business owner read-only, assign to all branches
-      if (role == 'business_owner' || role == 'business_owner_read_only') {
-        final allBranchesResponse = await supabase
-            .from('branches')
-            .select('id')
-            .eq('business_id', businessId);
+      for (var pendingUser in pendingRows) {
+        final role = pendingUser['role'] as String;
+        final branchId = pendingUser['branch_id'] as String?;
+        final businessId = pendingUser['business_id'] as String?;
 
-        final allBranches = allBranchesResponse as List;
-        debugPrint('Found ${allBranches.length} branches for business $businessId');
+        if (businessId == null || businessId.isEmpty) continue;
 
-        if (allBranches.isEmpty) {
-          throw Exception('No branches found for business $businessId. Cannot assign business owner role.');
-        }
+        if (role == 'business_owner' || role == 'business_owner_read_only') {
+          if (assignedBusinessIds.contains(businessId)) continue;
+          assignedBusinessIds.add(businessId);
 
-        for (var branchItem in allBranches) {
-          try {
+          final allBranchesResponse = await supabase
+              .from('branches')
+              .select('id')
+              .eq('business_id', businessId);
+          final allBranches = allBranchesResponse as List;
+
+          for (var branchItem in allBranches) {
             final bid = branchItem['id'] as String?;
-            if (bid == null || bid.isEmpty) {
-              debugPrint('Warning: Skipping branch with null or empty ID');
-              continue;
+            if (bid == null || bid.isEmpty) continue;
+            try {
+              await supabase.from('branch_users').upsert({
+                'user_id': userId,
+                'branch_id': bid,
+                'business_id': businessId,
+                'role': role,
+              }, onConflict: 'branch_id,user_id');
+              branchesAssigned++;
+            } catch (e) {
+              debugPrint('Error assigning $role to branch $bid: $e');
             }
-
-            // Use upsert to handle existing assignments
+          }
+        } else {
+          if (branchId == null || branchId.isEmpty) continue;
+          try {
             await supabase.from('branch_users').upsert({
               'user_id': userId,
-              'branch_id': bid,
+              'branch_id': branchId,
               'business_id': businessId,
               'role': role,
             }, onConflict: 'branch_id,user_id');
             branchesAssigned++;
-            debugPrint('Successfully assigned $role role to branch $bid');
           } catch (e) {
-            debugPrint('Error assigning role to branch ${branchItem['id']}: $e');
-            // Continue with other branches even if one fails
+            debugPrint('Error assigning $role to branch $branchId: $e');
           }
         }
-
-        if (branchesAssigned == 0) {
-          throw Exception('Failed to assign user to any branches. Role assignment failed.');
-        }
-
-        debugPrint('Successfully assigned $role role to $branchesAssigned branches for business $businessId');
-      } else {
-        // Assign to specific branch
-        if (branchId == null || branchId.isEmpty) {
-          throw Exception('Branch ID is required for non-business-owner roles');
-        }
-
-        try {
-          // Use upsert to handle existing assignments
-          await supabase.from('branch_users').upsert({
-            'user_id': userId,
-            'branch_id': branchId,
-            'business_id': businessId,
-            'role': role,
-          }, onConflict: 'branch_id,user_id');
-          branchesAssigned = 1;
-          debugPrint('Successfully assigned $role role to branch $branchId');
-        } catch (e) {
-          debugPrint('Error assigning role to branch $branchId: $e');
-          throw Exception('Failed to assign role to branch: $e');
-        }
       }
 
-      // Verify that branch_users entries were created
-      final verifyResponse = await supabase
-          .from('branch_users')
-          .select('id')
-          .eq('user_id', userId);
-
-      final verifyCount = (verifyResponse as List).length;
-      debugPrint('Verification: Found $verifyCount branch_users entries for user $userId');
-
-      if (verifyCount == 0) {
-        throw Exception('No branch assignments were created. Verification failed.');
+      if (branchesAssigned == 0) {
+        throw Exception('No branch assignments were created.');
       }
 
-      // Delete pending user record only after successful assignment
-      await supabase
-          .from('pending_users')
-          .delete()
-          .eq('email', pendingUser['email']);
-
-      debugPrint('Deleted pending user record for ${pendingUser['email']}');
+      await supabase.from('pending_users').delete().eq('email', first['email'] as String);
+      debugPrint('Assigned $branchesAssigned branch(es) and deleted pending rows for ${first['email']}');
     } catch (e) {
       debugPrint('Error assigning role from pending invitation: $e');
       debugPrint('Stack trace: ${StackTrace.current}');

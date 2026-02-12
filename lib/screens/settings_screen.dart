@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../utils/app_colors.dart';
 import '../services/auth_service.dart';
 import '../models/user.dart';
@@ -61,18 +62,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Branches Section
+          // Branches Section — only branches where user is owner or business owner
           _buildSectionHeader('Branches'),
           Card(
             child: Column(
               children: [
-                for (int i = 0; i < authService.userBranches.length; i++) ...[
+                for (int i = 0; i < authService.ownerBranches.length; i++) ...[
                   if (i > 0) const Divider(height: 1),
                   ListTile(
                     leading: const Icon(Icons.store),
-                    title: Text(authService.userBranches[i].name),
+                    title: Text(authService.ownerBranches[i].name),
                     subtitle: Text(
-                      authService.userBranches[i].location,
+                      authService.ownerBranches[i].location,
                       style: TextStyle(
                         fontSize: 12,
                         color: AppColors.textSecondary,
@@ -84,7 +85,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         context,
                         MaterialPageRoute(
                           builder: (context) => BranchDetailScreen(
-                            branch: authService.userBranches[i],
+                            branch: authService.ownerBranches[i],
                           ),
                         ),
                       );
@@ -94,7 +95,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     },
                   ),
                 ],
-                if (authService.userBranches.isEmpty)
+                if (authService.ownerBranches.isEmpty)
                   const Padding(
                     padding: EdgeInsets.all(16),
                     child: Text(
@@ -236,26 +237,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  void _showAboutDialog(BuildContext context) {
+  Future<void> _showAboutDialog(BuildContext context) async {
+    final info = await PackageInfo.fromPlatform();
+    final versionText = 'Version ${info.version}';
+
+    if (!context.mounted) return;
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('About'),
-        content: const Column(
+        content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
+            const Text(
               'credilo',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
               ),
             ),
-            SizedBox(height: 8),
-            Text('Version 1.0.0'),
-            SizedBox(height: 16),
-            Text(
+            const SizedBox(height: 8),
+            Text(versionText),
+            const SizedBox(height: 16),
+            const Text(
               'Manage your business finances, track expenses, sales, and more.',
               style: TextStyle(fontSize: 14),
             ),

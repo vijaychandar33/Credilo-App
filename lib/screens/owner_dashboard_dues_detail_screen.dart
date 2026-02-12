@@ -119,7 +119,9 @@ class _OwnerDashboardDuesDetailScreenState
                     ),
                   )
                 : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      _buildFilterSummarySection(),
                       Expanded(
                         child: ListView.builder(
                           padding: const EdgeInsets.all(16),
@@ -146,42 +148,16 @@ class _OwnerDashboardDuesDetailScreenState
     );
   }
 
-  Future<void> _toggleReceived(Due due) async {
-    if (due.id == null) return;
-    try {
-      await _dbService.updateDueStatus(due.id!, !due.isReceived);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              due.isReceived
-                  ? 'Marked as not received'
-                  : 'Marked as received',
-            ),
-          ),
-        );
-        _loadData();
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update status: $e')),
-        );
-      }
-    }
-  }
-
   Widget _buildDueCard(Due due, String branchName, String? branchLocation) {
     final isReceived = due.isReceived;
+    final isReceivable = widget.dueType == DueType.receivable;
+    final statusLabel = isReceivable
+        ? (isReceived ? 'Received' : 'Not received')
+        : (isReceived ? 'Paid' : 'Not paid');
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: due.id != null
-            ? () => _toggleReceived(due)
-            : null,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
+      child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -250,7 +226,7 @@ class _OwnerDashboardDuesDetailScreenState
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
-                    isReceived ? 'Received' : 'Not received',
+                    statusLabel,
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -264,22 +240,19 @@ class _OwnerDashboardDuesDetailScreenState
               const SizedBox(height: 4),
               _buildField('Remarks', due.remarks!),
             ],
-            if (due.id != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  'Tap to toggle received / not received',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: AppColors.textTertiary,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ),
+            if (due.lastEditedEmail != null &&
+                due.lastEditedEmail!.trim().isNotEmpty) ...[
+              const SizedBox(height: 4),
+              _buildField('Last Edited', due.lastEditedEmail!.trim()),
+            ],
+            if (due.statusLastEditedEmail != null &&
+                due.statusLastEditedEmail!.trim().isNotEmpty) ...[
+              const SizedBox(height: 4),
+              _buildField('Status Last Edited', due.statusLastEditedEmail!.trim()),
+            ],
           ],
         ),
       ),
-    ),
     );
   }
 
@@ -311,6 +284,76 @@ class _OwnerDashboardDuesDetailScreenState
         ],
       ),
     );
+  }
+
+  /// Summary row under the app bar showing which branch and date filters
+  /// are currently applied (same wording as Owner Dashboard Overview).
+  Widget _buildFilterSummarySection() {
+    final branchLabel = _branchLabel();
+    final dateLabel = _dateRangeLabel();
+
+    return Container(
+      color: AppColors.surface,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          _buildFilterChip('Branches', branchLabel),
+          _buildFilterChip('Date', dateLabel),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterChip(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceElevated,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$label: ',
+            style: TextStyle(
+              fontSize: 11,
+              color: AppColors.textTertiary,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 11,
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _branchLabel() {
+    if (widget.selectedBranches.isEmpty) return 'No branches';
+    if (widget.selectedBranches.length == 1) {
+      return widget.selectedBranches.first.name;
+    }
+    return '${widget.selectedBranches.length} branches';
+  }
+
+  String _dateRangeLabel() {
+    final start = widget.dateRange.startDate;
+    final end = widget.dateRange.endDate;
+    final formatter = DateFormat('d MMM yyyy');
+    if (start.year == end.year &&
+        start.month == end.month &&
+        start.day == end.day) {
+      return formatter.format(start);
+    }
+    return '${formatter.format(start)} - ${formatter.format(end)}';
   }
 
   Widget _buildTotalCard() {
