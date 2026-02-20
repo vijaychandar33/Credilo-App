@@ -9,6 +9,7 @@ import '../utils/app_colors.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/delete_confirmation_dialog.dart';
 import '../utils/error_message_helper.dart';
+import '../utils/unsaved_changes_dialog.dart';
 
 class CardScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -27,6 +28,7 @@ class _CardScreenState extends State<CardScreen> {
   bool _isSaving = false;
   bool _isLoading = false;
   bool _showValidationErrors = false;
+  bool _isDirty = false;
   final List<String> _existingSaleIds = []; // Track existing sale IDs
 
   @override
@@ -75,6 +77,7 @@ class _CardScreenState extends State<CardScreen> {
       };
 
       setState(() {
+        _isDirty = false;
         _sales.clear();
         _existingSaleIds.clear();
         _machines
@@ -154,12 +157,14 @@ class _CardScreenState extends State<CardScreen> {
     } finally {
       setState(() {
         _isLoading = false;
+        _isDirty = false;
       });
     }
   }
 
   void _addNewSale() {
     setState(() {
+      _isDirty = true;
       _sales.add(CardSaleRow());
     });
   }
@@ -188,6 +193,7 @@ class _CardScreenState extends State<CardScreen> {
     }
     
     setState(() {
+      _isDirty = true;
       _sales.removeAt(index);
       if (_sales.isEmpty) {
         _addNewSale();
@@ -287,6 +293,7 @@ class _CardScreenState extends State<CardScreen> {
       await _loadData();
 
       if (mounted) {
+        setState(() => _isDirty = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Card sales saved successfully')),
         );
@@ -318,7 +325,14 @@ class _CardScreenState extends State<CardScreen> {
       );
     }
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_isDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final discard = await showUnsavedChangesDialog(context);
+        if (discard && context.mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text('Card Sales - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
         actions: [
@@ -423,6 +437,7 @@ class _CardScreenState extends State<CardScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 
@@ -475,6 +490,7 @@ class _CardScreenState extends State<CardScreen> {
                           ],
                           onChanged: (value) {
                             setState(() {
+                              _isDirty = true;
                               sale.selectedMachineId = value;
                             });
                           },
@@ -502,6 +518,7 @@ class _CardScreenState extends State<CardScreen> {
                     ],
                     onChanged: (value) {
                       setState(() {
+                        _isDirty = true;
                         sale.amount = value.isEmpty
                             ? null
                             : double.tryParse(value);
@@ -517,6 +534,7 @@ class _CardScreenState extends State<CardScreen> {
                 isDense: true,
               ),
               maxLines: 2,
+              onChanged: (_) => setState(() => _isDirty = true),
             ),
           ],
         ),

@@ -105,14 +105,14 @@ class _OwnerDashboardDuesDetailScreenState
                         Icon(
                           Icons.inbox_outlined,
                           size: 64,
-                          color: AppColors.textTertiary,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                         const SizedBox(height: 16),
                         Text(
                           'No ${widget.title.toLowerCase()} for selected period',
                           style: TextStyle(
                             fontSize: 18,
-                            color: AppColors.textSecondary,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
                           ),
                         ),
                       ],
@@ -134,6 +134,7 @@ class _OwnerDashboardDuesDetailScreenState
                                 ? null
                                 : branchMatch.first;
                             return _buildDueCard(
+                              context,
                               due,
                               branch?.name ?? due.branchId,
                               branch?.location,
@@ -148,7 +149,8 @@ class _OwnerDashboardDuesDetailScreenState
     );
   }
 
-  Widget _buildDueCard(Due due, String branchName, String? branchLocation) {
+  Widget _buildDueCard(BuildContext context, Due due, String branchName, String? branchLocation) {
+    final theme = Theme.of(context);
     final isReceived = due.isReceived;
     final isReceivable = widget.dueType == DueType.receivable;
     final statusLabel = isReceivable
@@ -171,9 +173,10 @@ class _OwnerDashboardDuesDetailScreenState
                     children: [
                       Text(
                         branchName,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.onSurface,
                         ),
                       ),
                       if (branchLocation != null && branchLocation.isNotEmpty)
@@ -181,7 +184,7 @@ class _OwnerDashboardDuesDetailScreenState
                           branchLocation,
                           style: TextStyle(
                             fontSize: 12,
-                            color: AppColors.textSecondary,
+                            color: theme.colorScheme.onSurfaceVariant,
                           ),
                         ),
                     ],
@@ -192,7 +195,7 @@ class _OwnerDashboardDuesDetailScreenState
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: AppColors.primary,
+                    color: theme.colorScheme.primary,
                   ),
                 ),
               ],
@@ -202,11 +205,11 @@ class _OwnerDashboardDuesDetailScreenState
               DateFormat('d MMM yyyy').format(due.date),
               style: TextStyle(
                 fontSize: 12,
-                color: AppColors.textTertiary,
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: 8),
-            _buildField('Party', due.party),
+            _buildField(context, 'Party', due.party),
             const SizedBox(height: 4),
             Row(
               children: [
@@ -214,7 +217,7 @@ class _OwnerDashboardDuesDetailScreenState
                   'Status: ',
                   style: TextStyle(
                     fontSize: 12,
-                    color: AppColors.textSecondary,
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
                 Container(
@@ -238,17 +241,17 @@ class _OwnerDashboardDuesDetailScreenState
             ),
             if (due.remarks != null && due.remarks!.isNotEmpty) ...[
               const SizedBox(height: 4),
-              _buildField('Remarks', due.remarks!),
+              _buildField(context, 'Remarks', due.remarks!),
             ],
             if (due.lastEditedEmail != null &&
                 due.lastEditedEmail!.trim().isNotEmpty) ...[
               const SizedBox(height: 4),
-              _buildField('Last Edited', due.lastEditedEmail!.trim()),
+              _buildField(context, 'Last Edited', due.lastEditedEmail!.trim()),
             ],
             if (due.statusLastEditedEmail != null &&
                 due.statusLastEditedEmail!.trim().isNotEmpty) ...[
               const SizedBox(height: 4),
-              _buildField('Status Last Edited', due.statusLastEditedEmail!.trim()),
+              _buildField(context, 'Status Last Edited', due.statusLastEditedEmail!.trim()),
             ],
           ],
         ),
@@ -256,7 +259,8 @@ class _OwnerDashboardDuesDetailScreenState
     );
   }
 
-  Widget _buildField(String label, String value) {
+  Widget _buildField(BuildContext context, String label, String value) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(
@@ -268,16 +272,17 @@ class _OwnerDashboardDuesDetailScreenState
               label,
               style: TextStyle(
                 fontSize: 12,
-                color: AppColors.textSecondary,
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
           ),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
+                color: theme.colorScheme.onSurface,
               ),
             ),
           ),
@@ -289,11 +294,12 @@ class _OwnerDashboardDuesDetailScreenState
   /// Summary row under the app bar showing which branch and date filters
   /// are currently applied (same wording as Owner Dashboard Overview).
   Widget _buildFilterSummarySection() {
+    final theme = Theme.of(context);
     final branchLabel = _branchLabel();
     final dateLabel = _dateRangeLabel();
 
     return Container(
-      color: AppColors.surface,
+      color: theme.colorScheme.surfaceContainerHighest,
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       child: Wrap(
         spacing: 8,
@@ -307,10 +313,11 @@ class _OwnerDashboardDuesDetailScreenState
   }
 
   Widget _buildFilterChip(String label, String value) {
+    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: AppColors.surfaceElevated,
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
@@ -320,14 +327,14 @@ class _OwnerDashboardDuesDetailScreenState
             '$label: ',
             style: TextStyle(
               fontSize: 11,
-              color: AppColors.textTertiary,
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
           Text(
             value,
             style: TextStyle(
               fontSize: 11,
-              color: AppColors.textSecondary,
+              color: theme.colorScheme.onSurface,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -357,13 +364,14 @@ class _OwnerDashboardDuesDetailScreenState
   }
 
   Widget _buildTotalCard() {
+    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.surfaceElevated,
+        color: theme.colorScheme.surfaceContainerHighest,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
+            color: Colors.black.withValues(alpha: theme.brightness == Brightness.dark ? 0.3 : 0.08),
             blurRadius: 8,
             offset: const Offset(0, -2),
           ),
@@ -374,11 +382,12 @@ class _OwnerDashboardDuesDetailScreenState
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
+            Text(
               'Total',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
+                color: theme.colorScheme.onSurface,
               ),
             ),
             Text(
@@ -386,7 +395,7 @@ class _OwnerDashboardDuesDetailScreenState
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
-                color: AppColors.primary,
+                color: theme.colorScheme.primary,
               ),
             ),
           ],

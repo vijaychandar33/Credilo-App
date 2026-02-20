@@ -8,6 +8,7 @@ import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/delete_confirmation_dialog.dart';
 import '../utils/error_message_helper.dart';
+import '../utils/unsaved_changes_dialog.dart';
 import 'pending_dues_screen.dart';
 
 class DueScreen extends StatefulWidget {
@@ -27,6 +28,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
   final AuthService _authService = AuthService();
   bool _isSaving = false;
   bool _isLoading = false;
+  bool _isDirty = false;
   final List<String> _existingDueIds = []; // Track existing due IDs
 
   @override
@@ -58,6 +60,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
       
       if (dues.isNotEmpty) {
         setState(() {
+          _isDirty = false;
           _receivables.clear();
           _payables.clear();
           _existingDueIds.clear();
@@ -109,18 +112,21 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
     } finally {
       setState(() {
         _isLoading = false;
+        _isDirty = false;
       });
     }
   }
 
   void _addNewReceivable() {
     setState(() {
+      _isDirty = true;
       _receivables.add(DueRow(type: DueType.receivable));
     });
   }
 
   void _addNewPayable() {
     setState(() {
+      _isDirty = true;
       _payables.add(DueRow(type: DueType.payable));
     });
   }
@@ -149,6 +155,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
     }
     
     setState(() {
+      _isDirty = true;
       _receivables.removeAt(index);
       if (_receivables.isEmpty) {
         _addNewReceivable();
@@ -180,6 +187,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
     }
     
     setState(() {
+      _isDirty = true;
       _payables.removeAt(index);
       if (_payables.isEmpty) {
         _addNewPayable();
@@ -292,6 +300,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
       await _loadData();
 
       if (mounted) {
+        if (savedCount > 0) setState(() => _isDirty = false);
         if (savedCount > 0) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -341,7 +350,14 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
       );
     }
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_isDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final discard = await showUnsavedChangesDialog(context);
+        if (discard && context.mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text('Due - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
         actions: [
@@ -374,6 +390,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
           _buildDueList(_payables, _removePayable, _addNewPayable, _getTotalPayables, 'Payables'),
         ],
       ),
+    ),
     );
   }
 
@@ -485,6 +502,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
                       border: OutlineInputBorder(),
                       isDense: true,
                     ),
+                    onChanged: (_) => setState(() => _isDirty = true),
                   ),
                 ),
                 IconButton(
@@ -508,6 +526,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
                     ],
                     onChanged: (value) {
                       setState(() {
+                        _isDirty = true;
                         due.amount = value.isEmpty
                             ? null
                             : double.tryParse(value);
@@ -523,6 +542,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
                 isDense: true,
               ),
               maxLines: 2,
+              onChanged: (_) => setState(() => _isDirty = true),
             ),
           ],
         ),

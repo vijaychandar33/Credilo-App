@@ -6,6 +6,7 @@ import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/error_message_helper.dart';
+import '../utils/unsaved_changes_dialog.dart';
 
 class CashClosingScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -23,6 +24,7 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
   final AuthService _authService = AuthService();
   bool _isLoading = false;
   bool _isSaving = false;
+  bool _isDirty = false;
 
   double _opening = 0;
   double _totalCashSales = 0;
@@ -87,6 +89,7 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
     } finally {
       setState(() {
         _isLoading = false;
+        _isDirty = false;
       });
     }
   }
@@ -145,6 +148,7 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
       await _dbService.saveCashClosing(closing);
 
       if (mounted) {
+        setState(() => _isDirty = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Cash closing saved successfully')),
         );
@@ -179,7 +183,14 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
       );
     }
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_isDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final discard = await showUnsavedChangesDialog(context);
+        if (discard && context.mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text('Cash Closing - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
       ),
@@ -265,6 +276,7 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
               _withdrawn,
               (value) {
                 setState(() {
+                  _isDirty = true;
                   _withdrawn = value;
                   _calculateNextOpening();
                 });
@@ -294,6 +306,7 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
                       ),
                       maxLines: 3,
                       textCapitalization: TextCapitalization.sentences,
+                      onChanged: (_) => setState(() => _isDirty = true),
                     ),
                   ],
                 ),
@@ -348,6 +361,7 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
           ),
         ),
       ),
+    ),
     );
   }
 

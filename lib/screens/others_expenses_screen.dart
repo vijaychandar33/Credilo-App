@@ -125,7 +125,7 @@ class _OthersExpensesScreenState extends State<OthersExpensesScreen> {
       isScrollControlled: true,
       builder: (context) => SafeArea(
         child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.5,
+          height: MediaQuery.of(context).size.height * 0.9,
           child: _MoveToSupplierSheet(
             key: ValueKey<String>(expense.id ?? expense.branchId + expense.date.toIso8601String()),
             suppliers: suppliersForBranch,
@@ -551,44 +551,46 @@ class _MoveToSupplierSheetState extends State<_MoveToSupplierSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const SizedBox(height: 8),
-        _buildSelectedEntryCard(context),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          child: Text(
-            'Move to supplier',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: TextField(
-            controller: _searchController,
-            onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(
-              hintText: 'Search suppliers',
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: _searchController.text.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear),
-                      onPressed: () {
-                        _searchController.clear();
-                        setState(() {});
-                      },
-                    )
-                  : null,
-              border: const OutlineInputBorder(),
-              isDense: true,
+    return Scaffold(
+      resizeToAvoidBottomInset: true,
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(height: 8),
+          _buildSelectedEntryCard(context),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              'Move to supplier',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
             ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Expanded(
-          child: _filtered.isEmpty
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                hintText: 'Search suppliers',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() {});
+                        },
+                      )
+                    : null,
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: _filtered.isEmpty
               ? Center(
                   child: Text(
                     _searchController.text.trim().isEmpty
@@ -631,8 +633,9 @@ class _MoveToSupplierSheetState extends State<_MoveToSupplierSheet> {
                     );
                   },
                 ),
-        ),
-      ],
+          ),
+        ],
+      ),
     );
   }
 }

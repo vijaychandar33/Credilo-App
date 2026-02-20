@@ -115,23 +115,111 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
     }
   }
 
-  bool _hasFiltersApplied() {
-    // Check if any filters are applied
-    if (widget.selectedBranchIds != null && widget.selectedBranchIds!.isNotEmpty) {
-      final allBranches = _authService.ownerBranches.isNotEmpty 
-          ? _authService.ownerBranches.length 
-          : _authService.userBranches.length;
-      if (widget.selectedBranchIds!.length != allBranches) {
-        return true;
-      }
+  /// Persistent filter bar below app bar (same as Owner's Dashboard): always visible,
+  /// shows "All branches" / "All time" / "All" when no filter applied.
+  Widget _buildFilterSummarySection() {
+    final chips = <Widget>[
+      _buildFilterChip('Branches', _branchFilterLabel()),
+      _buildFilterChip('Date', _dateRangeFilterLabel()),
+      _buildFilterChip('Status', _statusFilterLabel()),
+    ];
+
+    final theme = Theme.of(context);
+    return Container(
+      color: theme.colorScheme.surfaceContainerHighest,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        children: chips,
+      ),
+    );
+  }
+
+  Widget _buildFilterChip(String label, String value) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$label: ',
+            style: TextStyle(
+              fontSize: 11,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 11,
+              color: theme.colorScheme.onSurface,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _branchFilterLabel() {
+    final branches = _authService.ownerBranches.isNotEmpty
+        ? _authService.ownerBranches
+        : _authService.userBranches;
+    if (branches.isEmpty) return 'No branches';
+    final selected = widget.selectedBranchIds;
+    if (selected == null || selected.isEmpty || selected.length == branches.length) {
+      return 'All branches';
     }
-    if (widget.dateRangeOption != null && widget.dateRangeOption != DateRangeOption.allTime) {
-      return true;
+    if (selected.length == 1) {
+      final match = branches.where((e) => e.id == selected.first).toList();
+      return match.isNotEmpty ? match.first.name : '1 branch';
     }
-    if (widget.selectedStatuses != null && widget.selectedStatuses!.isNotEmpty) {
-      return true;
+    return '${selected.length} branches';
+  }
+
+  String _dateRangeFilterLabel() {
+    final opt = widget.dateRangeOption;
+    if (opt == null || opt == DateRangeOption.allTime) return 'All time';
+    final formatter = DateFormat('d MMM yyyy');
+    switch (opt) {
+      case DateRangeOption.today:
+        return 'Today';
+      case DateRangeOption.yesterday:
+        return 'Yesterday';
+      case DateRangeOption.last7Days:
+        return 'Last 7 days';
+      case DateRangeOption.last2Weeks:
+        return 'Last 2 weeks';
+      case DateRangeOption.lastMonth:
+        return 'Last month';
+      case DateRangeOption.custom:
+        if (widget.customStartDate != null && widget.customEndDate != null) {
+          final s = widget.customStartDate!;
+          final e = widget.customEndDate!;
+          if (s.year == e.year && s.month == e.month && s.day == e.day) {
+            return formatter.format(s);
+          }
+          return '${formatter.format(s)} - ${formatter.format(e)}';
+        }
+        return 'Custom';
+      case DateRangeOption.allTime:
+        return 'All time';
     }
-    return false;
+  }
+
+  String _statusFilterLabel() {
+    final s = widget.selectedStatuses;
+    if (s == null || s.isEmpty) return 'All';
+    if (s.length == 1) {
+      return s.first == CreditExpenseStatus.paid ? 'Paid' : 'Unpaid';
+    }
+    return 'Paid, Unpaid';
   }
 
   void _toggleSelection(String id) {
@@ -424,19 +512,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
       appBar: AppBar(
         title: Text(widget.supplier.name),
         actions: [
-          if (_hasFiltersApplied())
-            IconButton(
-              icon: const Icon(Icons.filter_alt),
-              tooltip: 'Filters applied',
-              onPressed: null,
-            ),
           if (!_authService.isReadOnly()) ...[
-          if (_selectedIds.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.check_circle),
-              onPressed: _isUpdating ? null : _markAsPaid,
-              tooltip: 'Mark as Paid',
-            ),
           IconButton(
             icon: const Icon(Icons.edit),
             onPressed: _editSupplier,
@@ -454,7 +530,9 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                _buildFilterSummarySection(),
                 // Summary Card
                 Container(
                   margin: const EdgeInsets.all(16),
@@ -515,17 +593,17 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                 Expanded(
                   child: _expenses.isEmpty
                       ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.receipt_long, size: 64, color: AppColors.textSecondary),
-                              const SizedBox(height: 16),
-                              Text(
-                                'No expenses found',
-                                style: TextStyle(color: AppColors.textSecondary),
-                              ),
-                            ],
-                          ),
+                      child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.receipt_long, size: 64, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                            const SizedBox(height: 16),
+                            Text(
+                              'No expenses found',
+                              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                            ),
+                          ],
+                        ),
                         )
                       : ListView.builder(
                           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -589,14 +667,14 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                                             if (expense.branchName != null) ...[
                                               Row(
                                                 children: [
-                                                  Icon(Icons.store, size: 14, color: AppColors.textTertiary),
+                                                  Icon(Icons.store, size: 14, color: Theme.of(context).colorScheme.onSurfaceVariant),
                                                   const SizedBox(width: 4),
                                                   Text(
                                                     expense.branchName!,
                                                     style: TextStyle(
                                                       fontSize: 14,
                                                       fontWeight: FontWeight.w500,
-                                                      color: AppColors.textTertiary,
+                                                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                                                     ),
                                                   ),
                                                   if (expense.branchLocation != null) ...[
@@ -605,7 +683,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                                                       '(${expense.branchLocation!})',
                                                       style: TextStyle(
                                                         fontSize: 12,
-                                                        color: AppColors.textTertiary,
+                                                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                                                       ),
                                                     ),
                                                   ],
@@ -619,7 +697,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                                                   expense.category,
                                                   style: TextStyle(
                                                     fontSize: 14,
-                                                    color: AppColors.textTertiary,
+                                                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                                                   ),
                                                 ),
                                                 const SizedBox(width: 8),
@@ -652,7 +730,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                                                 style: TextStyle(
                                                   fontSize: 14,
                                                   fontWeight: FontWeight.w500,
-                                                  color: AppColors.textSecondary,
+                                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                                                 ),
                                                 maxLines: 2,
                                                 overflow: TextOverflow.ellipsis,
@@ -664,7 +742,7 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                                                 expense.note!,
                                                 style: TextStyle(
                                                   fontSize: 12,
-                                                  color: AppColors.textTertiary,
+                                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                                                 ),
                                                 maxLines: 2,
                                                 overflow: TextOverflow.ellipsis,

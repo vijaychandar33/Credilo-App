@@ -6,6 +6,7 @@ import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/error_message_helper.dart';
+import '../utils/unsaved_changes_dialog.dart';
 
 class CashBalanceScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -41,6 +42,7 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
   final AuthService _authService = AuthService();
   bool _isLoading = false;
   bool _isSaving = false;
+  bool _isDirty = false;
 
   @override
   void initState() {
@@ -104,6 +106,7 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
     } finally {
       setState(() {
         _isLoading = false;
+        _isDirty = false;
       });
     }
   }
@@ -150,6 +153,7 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
 
   void _updateCount(String denomination, int count, {required bool isCoin}) {
     setState(() {
+      _isDirty = true;
       final controllerKey = isCoin ? '${denomination}_coin' : '${denomination}_note';
       if (isCoin && _coinCounts.containsKey(denomination)) {
         _coinCounts[denomination] = count;
@@ -238,6 +242,7 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
       await _dbService.saveCashCounts(cashCounts);
 
       if (mounted) {
+        setState(() => _isDirty = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Cash balance saved successfully')),
         );
@@ -280,7 +285,14 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
       );
     }
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_isDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final discard = await showUnsavedChangesDialog(context);
+        if (discard && context.mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text('Cash Balance - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
       ),
@@ -347,6 +359,7 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 

@@ -9,6 +9,7 @@ import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/delete_confirmation_dialog.dart';
 import '../utils/error_message_helper.dart';
+import '../utils/unsaved_changes_dialog.dart';
 import 'supplier_management_screen.dart';
 
 class CreditExpenseScreen extends StatefulWidget {
@@ -27,6 +28,7 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
   bool _isSaving = false;
   bool _isLoading = false;
   bool _showValidationErrors = false;
+  bool _isDirty = false;
   final List<String> _existingExpenseIds = [];
   List<Supplier> _suppliers = [];
   final List<String> _categories = [
@@ -64,6 +66,7 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
       
       if (expenses.isNotEmpty) {
         setState(() {
+          _isDirty = false;
           _expenses.clear();
           _existingExpenseIds.clear();
           for (var expense in expenses) {
@@ -92,6 +95,7 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
     } finally {
       setState(() {
         _isLoading = false;
+        _isDirty = false;
       });
     }
   }
@@ -138,6 +142,7 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
 
   void _addNewRow() {
     setState(() {
+      _isDirty = true;
       _expenses.add(CreditExpenseRow());
     });
   }
@@ -166,6 +171,7 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
     }
     
     setState(() {
+      _isDirty = true;
       _expenses.removeAt(index);
       if (_expenses.isEmpty) {
         _addNewRow();
@@ -276,6 +282,7 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
       await _loadData();
 
       if (mounted) {
+        setState(() => _isDirty = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Credit expenses saved successfully')),
         );
@@ -317,7 +324,14 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
       );
     }
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_isDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final discard = await showUnsavedChangesDialog(context);
+        if (discard && context.mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text('Credit Expense - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
         actions: [
@@ -412,6 +426,7 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 
@@ -445,6 +460,7 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
     );
     if (selected != null && mounted) {
       setState(() {
+        _isDirty = true;
         expense.supplier = selected;
       });
     }
@@ -516,6 +532,7 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
                     }).toList(),
                     onChanged: (value) {
                       setState(() {
+                        _isDirty = true;
                         expense.category = value;
                       });
                     },
@@ -538,12 +555,12 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
                     ],
                     onChanged: (value) {
                       setState(() {
+                        _isDirty = true;
                         expense.amount = value.isEmpty
                             ? null
                             : double.tryParse(value);
                       });
                     },
-                    autofocus: index == _expenses.length - 1 && expense.amount == null,
                   ),
                 ),
               ],
@@ -557,6 +574,7 @@ class _CreditExpenseScreenState extends State<CreditExpenseScreen> {
                 isDense: true,
               ),
               maxLines: 2,
+              onChanged: (_) => setState(() => _isDirty = true),
             ),
           ],
         ),
@@ -614,13 +632,13 @@ class _SupplierPickerSheetState extends State<_SupplierPickerSheet> {
   @override
   Widget build(BuildContext context) {
     final filtered = _filtered;
-    return DraggableScrollableSheet(
-      initialChildSize: 0.6,
-      minChildSize: 0.4,
-      maxChildSize: 0.9,
-      expand: false,
-      builder: (context, scrollController) {
-        return Column(
+    final height = MediaQuery.sizeOf(context).height * 0.9;
+    return Scaffold(
+      resizeToAvoidBottomInset: true,
+      body: SizedBox(
+        height: height,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
@@ -665,7 +683,6 @@ class _SupplierPickerSheetState extends State<_SupplierPickerSheet> {
                       ),
                     )
                   : ListView.builder(
-                      controller: scrollController,
                       itemCount: filtered.length,
                       itemBuilder: (context, i) {
                         final name = filtered[i];
@@ -681,8 +698,8 @@ class _SupplierPickerSheetState extends State<_SupplierPickerSheet> {
                     ),
             ),
           ],
-        );
-      },
+        ),
+      ),
     );
   }
 }

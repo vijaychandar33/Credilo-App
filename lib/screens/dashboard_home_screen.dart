@@ -341,7 +341,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> with WidgetsB
               title,
               style: TextStyle(
                 fontSize: 12,
-                color: AppColors.textSecondary,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
           ],
@@ -456,12 +456,12 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> with WidgetsB
             ),
             const SizedBox(height: 12),
             if (branches.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(16),
+              Padding(
+                padding: const EdgeInsets.all(16),
                 child: Center(
                   child: Text(
                     'No branches yet. Add your first branch!',
-                    style: TextStyle(color: AppColors.textTertiary),
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.8)),
                   ),
                 ),
               )
@@ -500,7 +500,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> with WidgetsB
                             decoration: BoxDecoration(
                               color: branch.status == BranchStatus.active
                                   ? AppColors.success.withValues(alpha: 0.2)
-                                  : AppColors.textTertiary.withValues(alpha: 0.2),
+                                  : Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
@@ -510,12 +510,12 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> with WidgetsB
                                 fontWeight: FontWeight.w600,
                                 color: branch.status == BranchStatus.active
                                     ? AppColors.success
-                                    : AppColors.textTertiary,
+                                    : Theme.of(context).colorScheme.onSurfaceVariant,
                               ),
                             ),
                           ),
                           const SizedBox(width: 8),
-                          const Icon(Icons.chevron_right, color: AppColors.textTertiary),
+                          Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.onSurfaceVariant),
                         ],
                       ),
                     ),

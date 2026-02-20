@@ -576,11 +576,12 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
       ));
     }
 
+    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
-          color: AppColors.surface,
+          color: theme.colorScheme.surfaceContainerHighest,
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           child: Wrap(
             spacing: 8,
@@ -599,10 +600,11 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
   }
 
   Widget _buildFilterChip(String label, String value) {
+    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: AppColors.surfaceElevated,
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
@@ -612,14 +614,14 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
             '$label: ',
             style: TextStyle(
               fontSize: 11,
-              color: AppColors.textTertiary,
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
           Text(
             value,
             style: TextStyle(
               fontSize: 11,
-              color: AppColors.textSecondary,
+              color: theme.colorScheme.onSurface,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -724,7 +726,7 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
     required ValueChanged<String?> onChanged,
   }) {
     return Container(
-      color: AppColors.surface,
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       child: Row(
         children: [
@@ -766,6 +768,7 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
   }
 
   Widget _buildField(String label, String value) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -777,16 +780,17 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
               label,
               style: TextStyle(
                 fontSize: 12,
-                color: AppColors.textSecondary,
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
           ),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
+                color: theme.colorScheme.onSurface,
               ),
             ),
           ),
@@ -796,13 +800,14 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
   }
 
   Widget _buildTotalCard() {
+    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.surfaceElevated,
+        color: theme.colorScheme.surfaceContainerHighest,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
+            color: Colors.black.withValues(alpha: theme.brightness == Brightness.dark ? 0.3 : 0.08),
             blurRadius: 8,
             offset: const Offset(0, -2),
           ),
@@ -813,11 +818,12 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
+            Text(
               'Total',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
+                color: theme.colorScheme.onSurface,
               ),
             ),
             Text(
@@ -825,7 +831,7 @@ class _OwnerDashboardDetailScreenState extends State<OwnerDashboardDetailScreen>
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
-                color: AppColors.primary,
+                color: theme.colorScheme.primary,
               ),
             ),
           ],

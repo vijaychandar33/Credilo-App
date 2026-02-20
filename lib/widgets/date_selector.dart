@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../utils/app_colors.dart';
 import 'package:intl/intl.dart';
 
 class DateSelector extends StatefulWidget {
@@ -97,16 +96,19 @@ class _DateSelectorState extends State<DateSelector> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final today = DateTime.now();
     final todayDateOnly = DateTime(today.year, today.month, today.day);
+    final surfaceColor = theme.colorScheme.surfaceContainerHighest;
+    final onSurface = theme.colorScheme.onSurface;
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
+        color: surfaceColor,
         boxShadow: [
           BoxShadow(
-            color: AppColors.overlayDark,
+            color: Colors.black.withValues(alpha: theme.brightness == Brightness.dark ? 0.3 : 0.08),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -141,12 +143,12 @@ class _DateSelectorState extends State<DateSelector> {
                             ),
                             decoration: BoxDecoration(
                               color: isSelected
-                                  ? Theme.of(context).colorScheme.primary
+                                  ? theme.colorScheme.primary
                                   : Colors.transparent,
                               borderRadius: BorderRadius.circular(8),
                               border: isToday && !isSelected
                                   ? Border.all(
-                                      color: Theme.of(context).colorScheme.primary,
+                                      color: theme.colorScheme.primary,
                                       width: 1.5,
                                     )
                                   : null,
@@ -160,10 +162,8 @@ class _DateSelectorState extends State<DateSelector> {
                                     fontSize: 11,
                                     fontWeight: FontWeight.w500,
                                     color: isSelected
-                                        ? Colors.white
-                                        : Theme.of(context)
-                                            .colorScheme.onSurface
-                                            .withValues(alpha: 0.6),
+                                        ? theme.colorScheme.onPrimary
+                                        : onSurface.withValues(alpha: 0.6),
                                   ),
                                 ),
                                 const SizedBox(height: 4),
@@ -173,8 +173,8 @@ class _DateSelectorState extends State<DateSelector> {
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
                                     color: isSelected
-                                        ? Colors.white
-                                        : Theme.of(context).colorScheme.onSurface,
+                                        ? theme.colorScheme.onPrimary
+                                        : onSurface,
                                   ),
                                 ),
                               ],
@@ -190,14 +190,14 @@ class _DateSelectorState extends State<DateSelector> {
           ),
           const SizedBox(width: 8),
           IconButton(
-            icon: const Icon(Icons.calendar_today),
+            icon: Icon(Icons.calendar_today, color: onSurface),
             onPressed: _showDatePicker,
             tooltip: 'Select date',
           ),
           const SizedBox(width: 4),
           TextButton(
             onPressed: _jumpToToday,
-            child: const Text('Today'),
+            child: Text('Today', style: TextStyle(color: theme.colorScheme.primary)),
           ),
         ],
       ),

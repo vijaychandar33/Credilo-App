@@ -458,7 +458,7 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: disabled ? AppColors.surfaceContainer : color.withValues(alpha: 0.5),
+                color: disabled ? Theme.of(context).colorScheme.surfaceContainerHighest : color.withValues(alpha: 0.5),
                 width: 1,
               ),
             ),
@@ -538,13 +538,13 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        Icon(Icons.location_on, size: 14, color: AppColors.textSecondary),
+                        Icon(Icons.location_on, size: 14, color: Theme.of(context).colorScheme.onSurfaceVariant),
                         const SizedBox(width: 4),
                         Text(
                           branch.location,
                           style: TextStyle(
                             fontSize: 14,
-                            color: AppColors.textSecondary,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
                           ),
                         ),
                       ],
@@ -557,7 +557,7 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                 decoration: BoxDecoration(
                   color: branch.status == BranchStatus.active
                       ? AppColors.success.withValues(alpha: 0.2)
-                      : AppColors.textTertiary.withValues(alpha: 0.2),
+                      : Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
@@ -567,7 +567,7 @@ class _FinancialEntryScreenState extends State<FinancialEntryScreen> {
                     fontWeight: FontWeight.w600,
                     color: branch.status == BranchStatus.active
                         ? AppColors.success
-                        : AppColors.textTertiary,
+                        : Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 ),
               ),

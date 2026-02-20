@@ -378,25 +378,8 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
     return '${_selectedBranchIds.length} selected';
   }
 
-  bool _hasFiltersApplied() {
-    // Check if branch filter is applied (not all branches selected)
-    if (_availableBranches.length > 1) {
-      if (_selectedBranchIds.isEmpty || _selectedBranchIds.length != _availableBranches.length) {
-        return true;
-      }
-    }
-    // Check if date range filter is applied (not "All Time")
-    if (_selectedRangeOption != DateRangeOption.allTime) {
-      return true;
-    }
-    // Check if status filter is applied (pending checkbox checked)
-    if (_selectedStatuses.contains(CreditExpenseStatus.unpaid)) {
-      return true;
-    }
-    return false;
-  }
-
   Widget _buildBranchSelectorField() {
+    final theme = Theme.of(context);
     final canEdit = _availableBranches.length > 1;
     return GestureDetector(
       onTap: canEdit ? _showBranchSelectionSheet : null,
@@ -412,7 +395,7 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
         child: Text(
           _branchFilterLabel(),
           style: TextStyle(
-            color: canEdit ? AppColors.textPrimary : AppColors.textSecondary,
+            color: canEdit ? theme.colorScheme.onSurface : theme.colorScheme.onSurfaceVariant,
           ),
         ),
       ),
@@ -575,20 +558,21 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
   Widget _buildSupplierList() {
     final displayList = _getSuppliersForDisplay();
     if (displayList.isEmpty) {
+      final theme = Theme.of(context);
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.business, size: 64, color: AppColors.textSecondary),
+            Icon(Icons.business, size: 64, color: theme.colorScheme.onSurfaceVariant),
             const SizedBox(height: 16),
             Text(
               _searchQuery.trim().isEmpty ? 'No suppliers yet' : 'No suppliers match your search',
-              style: TextStyle(color: AppColors.textSecondary),
+              style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
             ),
             const SizedBox(height: 8),
             Text(
               _searchQuery.trim().isEmpty ? 'Add a supplier to get started' : 'Try a different search or clear filters',
-              style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
+              style: TextStyle(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.8), fontSize: 12),
             ),
           ],
         ),
@@ -664,22 +648,22 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
                     ],
                   ),
                   const SizedBox(height: 4),
-                  const Text(
+                  Text(
                     'Pending Amount',
                     style: TextStyle(
                       fontSize: 12,
-                      color: AppColors.textTertiary,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                   if (supplier.contact != null && supplier.contact!.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        Icon(Icons.phone, size: 14, color: AppColors.textTertiary),
+                        Icon(Icons.phone, size: 14, color: Theme.of(context).colorScheme.onSurfaceVariant),
                         const SizedBox(width: 4),
                         Text(
                           supplier.contact!,
-                          style: TextStyle(fontSize: 12, color: AppColors.textTertiary),
+                          style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
                         ),
                       ],
                     ),
@@ -689,12 +673,12 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(Icons.location_on, size: 14, color: AppColors.textTertiary),
+                        Icon(Icons.location_on, size: 14, color: Theme.of(context).colorScheme.onSurfaceVariant),
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
                             supplier.address!,
-                            style: TextStyle(fontSize: 12, color: AppColors.textTertiary),
+                            style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
                           ),
                         ),
                       ],
@@ -727,13 +711,13 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
         width: double.infinity,
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
         decoration: BoxDecoration(
-          color: AppColors.surfaceElevated,
+          color: theme.colorScheme.surfaceContainerHighest,
           border: Border(
             top: BorderSide(color: theme.dividerColor),
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.2),
+              color: Colors.black.withValues(alpha: theme.brightness == Brightness.dark ? 0.2 : 0.08),
               blurRadius: 10,
               offset: const Offset(0, -4),
             ),
@@ -744,7 +728,7 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
           children: [
             Text(
               _totalLabel(),
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurface),
             ),
             Text(
               CurrencyFormatter.format(displayTotal),
@@ -767,12 +751,6 @@ class _SupplierManagementScreenState extends State<SupplierManagementScreen> {
       appBar: AppBar(
         title: const Text('Suppliers'),
         actions: [
-          if (_hasFiltersApplied())
-            IconButton(
-              icon: const Icon(Icons.filter_alt),
-              tooltip: 'Filters applied',
-              onPressed: null,
-            ),
           TextButton(
             onPressed: () {
               Navigator.push(

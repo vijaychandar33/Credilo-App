@@ -442,6 +442,9 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
   @override
   Widget build(BuildContext context) {
     final branchLabel = _branchFilterLabel();
+    final theme = Theme.of(context);
+    final onSurface = theme.colorScheme.onSurface;
+    final onSurfaceVariant = theme.colorScheme.onSurfaceVariant;
 
     return Scaffold(
       appBar: AppBar(
@@ -477,16 +480,16 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                           suffixIcon: Icon(
                             Icons.arrow_drop_down,
                             color: _availableBranches.isEmpty
-                                ? AppColors.textSecondary
-                                : AppColors.textPrimary,
+                                ? onSurfaceVariant
+                                : onSurface,
                           ),
                         ),
                         child: Text(
                           branchLabel,
                           style: TextStyle(
                             color: _availableBranches.isEmpty
-                                ? AppColors.textSecondary
-                                : AppColors.textPrimary,
+                                ? onSurfaceVariant
+                                : onSurface,
                           ),
                         ),
                       ),
@@ -539,34 +542,34 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
           _buildSectionHeader('Sales'),
           const SizedBox(height: 8),
           _buildTappableSummaryCard(
+            context,
             'Total Cash Sales',
             CurrencyFormatter.format(data['totalCashSales'] ?? 0.0),
             Icons.money,
-            AppColors.textPrimary,
             () => _navigateToDetail(DetailScreenType.cashSales, 'Total Cash Sales'),
           ),
           const SizedBox(height: 12),
           _buildTappableSummaryCard(
+            context,
             'Card Sales',
             CurrencyFormatter.format(data['totalCardSales'] ?? 0.0),
             Icons.credit_card,
-            AppColors.textPrimary,
             () => _navigateToDetail(DetailScreenType.cardSales, 'Card Sales'),
           ),
           const SizedBox(height: 12),
           _buildTappableSummaryCard(
+            context,
             'Online Sales',
             CurrencyFormatter.format(data['totalOnlineSales'] ?? 0.0),
             Icons.shopping_cart,
-            AppColors.textPrimary,
             () => _navigateToDetail(DetailScreenType.onlineSales, 'Online Sales'),
           ),
           const SizedBox(height: 12),
           _buildTappableSummaryCard(
+            context,
             'UPI Payments',
             CurrencyFormatter.format(data['totalQrPayments'] ?? 0.0),
             Icons.qr_code,
-            AppColors.textPrimary,
             () => _navigateToDetail(DetailScreenType.qrPayments, 'UPI Payments'),
           ),
           const SizedBox(height: 12),
@@ -582,34 +585,34 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
           _buildSectionHeader('Expenses'),
           const SizedBox(height: 8),
           _buildTappableSummaryCard(
+            context,
             'Total Cash Expenses',
             CurrencyFormatter.format(data['totalCashExpenses'] ?? 0.0),
             Icons.receipt_long,
-            AppColors.textPrimary,
             () => _navigateToDetail(DetailScreenType.cashExpenses, 'Total Cash Expenses'),
           ),
           const SizedBox(height: 12),
           _buildTappableSummaryCard(
+            context,
             'Total Online Expenses',
             CurrencyFormatter.format(data['totalOnlineExpenses'] ?? 0.0),
             Icons.account_balance,
-            AppColors.textPrimary,
             () => _navigateToDetail(DetailScreenType.onlineExpenses, 'Total Online Expenses'),
           ),
           const SizedBox(height: 12),
           _buildTappableSummaryCard(
+            context,
             'Total Credit Expenses',
             CurrencyFormatter.format(data['totalCreditExpenses'] ?? 0.0),
             Icons.credit_card_outlined,
-            AppColors.textPrimary,
             () => _navigateToDetail(DetailScreenType.creditExpenses, 'Total Credit Expenses'),
           ),
           const SizedBox(height: 12),
           _buildTappableSummaryCard(
+            context,
             'Total Fixed Expenses',
             CurrencyFormatter.format(data['totalFixedExpenses'] ?? 0.0),
             Icons.receipt_long,
-            AppColors.textPrimary,
             () => _navigateToDetail(DetailScreenType.fixedExpenses, 'Total Fixed Expenses'),
           ),
           const SizedBox(height: 12),
@@ -730,15 +733,17 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
   Widget _buildSectionHeader(String title) {
     return Text(
       title,
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 18,
         fontWeight: FontWeight.bold,
         letterSpacing: 0.5,
+        color: Theme.of(context).colorScheme.onSurface,
       ),
     );
   }
 
   Widget _buildSummaryCard(String title, String value, IconData icon, Color color) {
+    final tertiary = Theme.of(context).colorScheme.onSurfaceVariant;
     return Card(
       elevation: 2,
       child: Padding(
@@ -762,7 +767,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                     title,
                     style: TextStyle(
                       fontSize: 14,
-                      color: AppColors.textTertiary,
+                      color: tertiary,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -783,7 +788,10 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
     );
   }
 
-  Widget _buildTappableSummaryCard(String title, String value, IconData icon, Color color, VoidCallback onTap) {
+  Widget _buildTappableSummaryCard(BuildContext context, String title, String value, IconData icon, VoidCallback onTap) {
+    final theme = Theme.of(context);
+    final color = theme.colorScheme.onSurface;
+    final tertiary = theme.colorScheme.onSurfaceVariant;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -810,7 +818,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                       title,
                       style: TextStyle(
                         fontSize: 14,
-                        color: AppColors.textTertiary,
+                        color: tertiary,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -825,7 +833,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right, color: AppColors.textTertiary),
+              Icon(Icons.chevron_right, color: tertiary),
             ],
           ),
         ),
@@ -1004,6 +1012,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
   }
 
   Widget _buildDueRow(Due due, VoidCallback onTap) {
+    final tertiary = Theme.of(context).colorScheme.onSurfaceVariant;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
@@ -1015,18 +1024,19 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
             Expanded(
               child: Text(
                 due.party,
-                style: const TextStyle(fontSize: 16),
+                style: TextStyle(fontSize: 16, color: Theme.of(context).colorScheme.onSurface),
               ),
             ),
             Text(
               CurrencyFormatter.format(due.amount, decimalDigits: 0),
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.onSurface,
               ),
             ),
             const SizedBox(width: 8),
-            Icon(Icons.chevron_right, size: 20, color: AppColors.textTertiary),
+            Icon(Icons.chevron_right, size: 20, color: tertiary),
           ],
         ),
       ),
@@ -1107,13 +1117,14 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
         }
       },
       selectedItemBuilder: (context) {
+        final color = Theme.of(context).colorScheme.onSurface;
         return [
-          const Text('Today', overflow: TextOverflow.ellipsis),
-          const Text('Yesterday', overflow: TextOverflow.ellipsis),
-          const Text('Last 7 Days', overflow: TextOverflow.ellipsis),
-          const Text('Last 2 Weeks', overflow: TextOverflow.ellipsis),
-          const Text('Last Month', overflow: TextOverflow.ellipsis),
-          Text(getDisplayText(), overflow: TextOverflow.ellipsis),
+          Text('Today', overflow: TextOverflow.ellipsis, style: TextStyle(color: color)),
+          Text('Yesterday', overflow: TextOverflow.ellipsis, style: TextStyle(color: color)),
+          Text('Last 7 Days', overflow: TextOverflow.ellipsis, style: TextStyle(color: color)),
+          Text('Last 2 Weeks', overflow: TextOverflow.ellipsis, style: TextStyle(color: color)),
+          Text('Last Month', overflow: TextOverflow.ellipsis, style: TextStyle(color: color)),
+          Text(getDisplayText(), overflow: TextOverflow.ellipsis, style: TextStyle(color: color)),
         ];
       },
     );

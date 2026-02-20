@@ -33,7 +33,7 @@ class DatabaseService {
           .select()
           .eq('date', date.toIso8601String().split('T')[0])
           .eq('branch_id', branchId)
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: true);
 
       return (response as List)
           .map((json) => CashExpense.fromJson(json))
@@ -88,7 +88,7 @@ class DatabaseService {
           .select()
           .eq('date', date.toIso8601String().split('T')[0])
           .eq('branch_id', branchId)
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: true);
 
       return (response as List)
           .map((json) => OnlineExpense.fromJson(json))
@@ -143,7 +143,7 @@ class DatabaseService {
           .select()
           .eq('date', date.toIso8601String().split('T')[0])
           .eq('branch_id', branchId)
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: true);
 
       return (response as List)
           .map((json) => CreditExpense.fromJson(json))
@@ -639,7 +639,7 @@ class DatabaseService {
           .select()
           .eq('date', date.toIso8601String().split('T')[0])
           .eq('branch_id', branchId)
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: true);
 
       return (response as List)
           .map((json) => CardSale.fromJson(json))
@@ -678,7 +678,7 @@ class DatabaseService {
           .from('card_machines')
           .select()
           .eq('branch_id', branchId)
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: true);
 
       return (response as List)
           .map((json) => CardMachine.fromJson(json))
@@ -742,7 +742,7 @@ class DatabaseService {
           .select()
           .eq('date', date.toIso8601String().split('T')[0])
           .eq('branch_id', branchId)
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: true);
 
       return (response as List)
           .map((json) => OnlineSale.fromJson(json))
@@ -782,7 +782,7 @@ class DatabaseService {
           .select()
           .eq('date', date.toIso8601String().split('T')[0])
           .eq('branch_id', branchId)
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: true);
 
       return (response as List)
           .map((json) => QrPayment.fromJson(json))
@@ -1077,7 +1077,7 @@ class DatabaseService {
         query = query.eq('type', type);
       }
 
-      final response = await query.order('created_at', ascending: false);
+      final response = await query.order('created_at', ascending: true);
 
       return (response as List).map((json) => Due.fromJson(json)).toList();
     } catch (e) {
@@ -1133,7 +1133,7 @@ class DatabaseService {
           .eq('branch_id', branchId)
           .eq('status', 'not_received')
           .order('date', ascending: false)
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: true);
       return (response as List).map((json) => Due.fromJson(json)).toList();
     } catch (e) {
       debugPrint('Error fetching pending dues: $e');
@@ -1514,7 +1514,7 @@ class DatabaseService {
         query = query.lte('date', endDate.toIso8601String().split('T')[0]);
       }
 
-      final response = await query.order('created_at', ascending: false);
+      final response = await query.order('created_at', ascending: true);
 
       return (response as List)
           .map((json) => SafeTransaction.fromJson(json))

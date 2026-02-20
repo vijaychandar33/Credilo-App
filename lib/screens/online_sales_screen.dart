@@ -8,6 +8,7 @@ import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/delete_confirmation_dialog.dart';
 import '../utils/error_message_helper.dart';
+import '../utils/unsaved_changes_dialog.dart';
 import 'online_sales_platform_management_screen.dart';
 
 class OnlineSalesScreen extends StatefulWidget {
@@ -26,8 +27,9 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
   bool _isSaving = false;
   bool _isLoading = false;
   bool _showValidationErrors = false;
+  bool _isDirty = false;
   final List<String> _existingSaleIds = []; // Track existing sale IDs
-  List<String> _platforms = []; // Loaded from DB (branch-specific); fallback to defaults if empty
+  List<String> _platforms = []; // Names for dropdown: configured + "Others"
   Map<String, String> _platformIdByName = {}; // name -> id for saving with platform_id
 
   @override
@@ -46,7 +48,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
       if (branch == null) {
         setState(() {
           _isLoading = false;
-          _platforms = ['Swiggy', 'Zomato', 'Own Delivery', 'Others'];
+          _platforms = ['Others'];
           _platformIdByName = {};
           _sales.clear();
           _sales.add(OnlineSaleRow());
@@ -63,49 +65,59 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
         for (var p in platformList) if (p.id != null) p.id!: p.name,
       };
       final providerNames = platformList.map((p) => p.name).where((n) => n.toLowerCase() != 'others').toList();
-      providerNames.add('Others'); // Always last
+      providerNames.add('Others');
 
-      if (sales.isNotEmpty) {
-        setState(() {
-          _sales.clear();
-          _existingSaleIds.clear();
-          _platforms = List.from(providerNames);
-          _platformIdByName = platformIdByName;
-          for (var sale in sales) {
-            final row = OnlineSaleRow();
-            row.platform = (sale.platformId != null && platformIdToName.containsKey(sale.platformId))
-                ? platformIdToName[sale.platformId]!
-                : sale.platform;
-            row.grossController.text = sale.gross.toStringAsFixed(2);
-            row.gross = sale.gross;
-            if (sale.commission != null) {
-              row.commissionController.text = sale.commission!.toStringAsFixed(2);
-              row.commission = sale.commission;
-            }
-            row.netController.text = sale.net.toStringAsFixed(2);
-            if (sale.notes != null) {
-              row.notesController.text = sale.notes!;
-            }
-            row._calculateNet();
-            if (sale.id != null) {
-              row.id = sale.id!;
-              _existingSaleIds.add(sale.id!);
-            }
-            _sales.add(row);
+      setState(() {
+        _isDirty = false;
+        _sales.clear();
+        _existingSaleIds.clear();
+        _platforms = List.from(providerNames);
+        _platformIdByName = platformIdByName;
+        for (var sale in sales) {
+          final row = OnlineSaleRow();
+          final platformName = (sale.platformId != null && platformIdToName.containsKey(sale.platformId))
+              ? platformIdToName[sale.platformId]!
+              : sale.platform;
+          row.platform = platformName;
+          row.isPlatformLocked = true;
+          row.platformLabel = platformName;
+          row.grossController.text = sale.gross.toStringAsFixed(2);
+          row.gross = sale.gross;
+          if (sale.commission != null) {
+            row.commissionController.text = sale.commission!.toStringAsFixed(2);
+            row.commission = sale.commission;
           }
-        });
-      } else {
-        setState(() {
-          _platforms = providerNames;
-          _platformIdByName = platformIdByName;
-          _sales.clear();
+          row.netController.text = sale.net.toStringAsFixed(2);
+          if (sale.notes != null) {
+            row.notesController.text = sale.notes!;
+          }
+          row._calculateNet();
+          if (sale.id != null) {
+            row.id = sale.id!;
+            _existingSaleIds.add(sale.id!);
+          }
+          _sales.add(row);
+        }
+
+        // Add one empty row per configured platform that has no entry yet (like Card Sales)
+        for (var p in platformList) {
+          final hasEntry = _sales.any((row) => row.platform == p.name);
+          if (hasEntry) continue;
+          final row = OnlineSaleRow()
+            ..platform = p.name
+            ..isPlatformLocked = true
+            ..platformLabel = p.name;
+          _sales.add(row);
+        }
+
+        if (_sales.isEmpty) {
           _sales.add(OnlineSaleRow());
-        });
-      }
+        }
+      });
     } catch (e) {
       debugPrint('Error loading online sales: $e');
       setState(() {
-        _platforms = _platforms.isEmpty ? ['Swiggy', 'Zomato', 'Own Delivery', 'Others'] : _platforms;
+        _platforms = _platforms.isEmpty ? ['Others'] : _platforms;
         _platformIdByName = {};
         _sales.clear();
         _sales.add(OnlineSaleRow());
@@ -113,13 +125,15 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
     } finally {
       setState(() {
         _isLoading = false;
+        _isDirty = false;
       });
     }
   }
 
   void _addNewSale() {
     setState(() {
-      _sales.add(OnlineSaleRow());
+      _isDirty = true;
+      _sales.add(OnlineSaleRow()); // unlocked row: user picks platform from dropdown (incl. Others)
     });
   }
 
@@ -147,6 +161,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
     }
     
     setState(() {
+      _isDirty = true;
       _sales.removeAt(index);
       if (_sales.isEmpty) {
         _addNewSale();
@@ -240,6 +255,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
       await _loadData();
 
       if (mounted) {
+        setState(() => _isDirty = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Online sales saved successfully')),
         );
@@ -271,7 +287,14 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
       );
     }
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_isDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final discard = await showUnsavedChangesDialog(context);
+        if (discard && context.mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text('Online Sales - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
         actions: [
@@ -375,6 +398,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 
@@ -394,27 +418,40 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
             Row(
               children: [
                 Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: sale.platform,
-                    decoration: InputDecoration(
-                      labelText: 'Platform',
-                      border: const OutlineInputBorder(),
-                      isDense: true,
-                      errorText: showPlatformError ? 'Select platform' : null,
-                    ),
-                    items: _platforms.map((platform) {
-                      return DropdownMenuItem(value: platform, child: Text(platform));
-                    }).toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        sale.platform = value;
-                      });
-                    },
-                  ),
+                  child: sale.isPlatformLocked
+                      ? InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Platform',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          child: Text(sale.platformLabel ?? sale.platform ?? 'Platform'),
+                        )
+                      : DropdownButtonFormField<String>(
+                          initialValue: sale.platform != null && sale.platform!.isNotEmpty
+                              ? sale.platform
+                              : null,
+                          decoration: InputDecoration(
+                            labelText: 'Platform',
+                            border: const OutlineInputBorder(),
+                            isDense: true,
+                            errorText: showPlatformError ? 'Select platform' : null,
+                          ),
+                          items: _platforms.map((platform) {
+                            return DropdownMenuItem(value: platform, child: Text(platform));
+                          }).toList(),
+                          onChanged: (value) {
+                            setState(() {
+                              _isDirty = true;
+                              sale.platform = value;
+                            });
+                          },
+                        ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline, color: AppColors.error),
                   onPressed: () => _removeSale(index),
+                  tooltip: 'Delete',
                 ),
               ],
             ),
@@ -436,6 +473,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
                     ],
                     onChanged: (value) {
                       setState(() {
+                        _isDirty = true;
                         sale.gross = value.isEmpty
                             ? null
                             : double.tryParse(value);
@@ -460,6 +498,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
                     ],
                     onChanged: (value) {
                       setState(() {
+                        _isDirty = true;
                         sale.commission = value.isEmpty
                             ? null
                             : double.tryParse(value);
@@ -491,6 +530,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
                 isDense: true,
               ),
               maxLines: 2,
+              onChanged: (_) => setState(() => _isDirty = true),
             ),
           ],
         ),
@@ -505,6 +545,8 @@ class OnlineSaleRow {
   final TextEditingController netController = TextEditingController();
   final TextEditingController notesController = TextEditingController();
   String? platform;
+  bool isPlatformLocked = false;
+  String? platformLabel;
   double? gross;
   double? commission;
   String? id; // Track if this row is saved in database

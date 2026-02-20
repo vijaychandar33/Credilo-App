@@ -8,6 +8,7 @@ import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/delete_confirmation_dialog.dart';
 import '../utils/error_message_helper.dart';
+import '../utils/unsaved_changes_dialog.dart';
 
 class CashExpenseScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -25,6 +26,7 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
   bool _isSaving = false;
   bool _isLoading = false;
   bool _showValidationErrors = false;
+  bool _isDirty = false;
   final List<String> _existingExpenseIds = []; // Track existing expense IDs
   final List<String> _categories = [
     'Supplies',
@@ -58,6 +60,7 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
       
       if (expenses.isNotEmpty) {
         setState(() {
+          _isDirty = false;
           _expenses.clear();
           _existingExpenseIds.clear();
           for (var expense in expenses) {
@@ -85,12 +88,14 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
     } finally {
       setState(() {
         _isLoading = false;
+        _isDirty = false;
       });
     }
   }
 
   void _addNewRow() {
     setState(() {
+      _isDirty = true;
       _expenses.add(CashExpenseRow());
     });
   }
@@ -119,6 +124,7 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
     }
     
     setState(() {
+      _isDirty = true;
       _expenses.removeAt(index);
       if (_expenses.isEmpty) {
         _addNewRow();
@@ -221,6 +227,7 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
       await _loadData();
 
       if (mounted) {
+        setState(() => _isDirty = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Expenses saved successfully')),
         );
@@ -253,7 +260,14 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
       );
     }
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_isDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final discard = await showUnsavedChangesDialog(context);
+        if (discard && context.mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text('Cash Daily Expense - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
       ),
@@ -340,6 +354,7 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 
@@ -368,6 +383,7 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
                       isDense: true,
                       errorText: showItemError ? 'Enter item' : null,
                     ),
+                    onChanged: (_) => setState(() => _isDirty = true),
                   ),
                 ),
                 IconButton(
@@ -394,6 +410,7 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
                     }).toList(),
                     onChanged: (value) {
                       setState(() {
+                        _isDirty = true;
                         expense.category = value;
                       });
                     },
@@ -416,12 +433,12 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
                     ],
                     onChanged: (value) {
                       setState(() {
+                        _isDirty = true;
                         expense.amount = value.isEmpty
                             ? null
                             : double.tryParse(value);
                       });
                     },
-                    autofocus: index == _expenses.length - 1 && expense.amount == null,
                   ),
                 ),
               ],
@@ -435,6 +452,7 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
                 isDense: true,
               ),
               maxLines: 2,
+              onChanged: (_) => setState(() => _isDirty = true),
             ),
           ],
         ),

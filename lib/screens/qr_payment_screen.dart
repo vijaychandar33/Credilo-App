@@ -9,6 +9,7 @@ import '../utils/currency_formatter.dart';
 import '../utils/delete_confirmation_dialog.dart';
 import '../utils/closing_cycle_service.dart';
 import '../utils/error_message_helper.dart';
+import '../utils/unsaved_changes_dialog.dart';
 import 'upi_management_screen.dart';
 
 class QrPaymentScreen extends StatefulWidget {
@@ -27,8 +28,9 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
   bool _isSaving = false;
   bool _isLoading = false;
   bool _showValidationErrors = false;
+  bool _isDirty = false;
   final List<String> _existingPaymentIds = []; // Track existing payment IDs
-  List<String> _providers = []; // Loaded from UPI providers (branch) + "Others"
+  List<String> _providers = []; // Names for dropdown: configured + "Others"
   Map<String, String> _providerIdByName = {}; // name -> id for saving with provider_id
   bool _useCustomClosing = false;
   int _closingHour = 0;
@@ -66,6 +68,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
       if (branch == null) {
         setState(() {
           _isLoading = false;
+          _isDirty = false;
           _providers = ['Others'];
           _providerIdByName = {};
           _payments.clear();
@@ -83,108 +86,109 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
         for (var p in upiProviders) if (p.id != null) p.id!: p.name,
       };
       final providerNames = upiProviders.map((p) => p.name).where((n) => n.toLowerCase() != 'others').toList();
-      providerNames.add('Others'); // Always last
+      providerNames.add('Others');
 
-      if (payments.isNotEmpty) {
-        // First, migrate payments if needed (outside setState for async operations)
-        for (var payment in payments) {
-          // Migrate: If custom closing is enabled and payment has amount but no amountBeforeMidnight/amountAfterMidnight,
-          // migrate the amount to amountBeforeMidnight
-          if (_useCustomClosing && 
-              payment.amount != null && 
-              payment.amountBeforeMidnight == null && 
-              payment.amountAfterMidnight == null &&
-              payment.id != null) {
-            try {
-              final updatedPayment = QrPayment(
-                id: payment.id,
-                date: payment.date,
-                userId: payment.userId,
-                branchId: payment.branchId,
-                providerId: payment.providerId,
-                provider: payment.provider,
-                amount: null, // Clear the old amount field
-                amountBeforeMidnight: payment.amount,
-                amountAfterMidnight: null,
-                notes: payment.notes,
-                createdAt: payment.createdAt,
-              );
-              await _dbService.updateQrPayment(updatedPayment);
-              // Update the payment object to reflect migration
-              payment = updatedPayment;
-            } catch (e) {
-              debugPrint('Error migrating payment amount: $e');
-            }
+      // Migrate payments if needed (outside setState for async operations)
+      for (var payment in payments) {
+        if (_useCustomClosing &&
+            payment.amount != null &&
+            payment.amountBeforeMidnight == null &&
+            payment.amountAfterMidnight == null &&
+            payment.id != null) {
+          try {
+            final updatedPayment = QrPayment(
+              id: payment.id,
+              date: payment.date,
+              userId: payment.userId,
+              branchId: payment.branchId,
+              providerId: payment.providerId,
+              provider: payment.provider,
+              amount: null,
+              amountBeforeMidnight: payment.amount,
+              amountAfterMidnight: null,
+              notes: payment.notes,
+              createdAt: payment.createdAt,
+            );
+            await _dbService.updateQrPayment(updatedPayment);
+          } catch (e) {
+            debugPrint('Error migrating payment amount: $e');
           }
         }
-        
-        // Reload payments after migration
-        final updatedPayments = await _dbService.getQrPayments(widget.selectedDate, branch.id);
-        
-        setState(() {
-          _payments.clear();
-          _existingPaymentIds.clear();
-          _providers = providerNames;
-          _providerIdByName = providerIdByName;
-          for (var payment in updatedPayments) {
-            final row = QrPaymentRow();
-            row.provider = (payment.providerId != null &&
-                    providerIdToName.containsKey(payment.providerId))
-                ? providerIdToName[payment.providerId]!
-                : payment.provider;
-            
-            // Load data based on whether custom closing is enabled
-            if (_useCustomClosing) {
-              if (payment.amountBeforeMidnight != null) {
-                row.amountBeforeMidnightController.text = payment.amountBeforeMidnight!.toStringAsFixed(2);
-                row.amountBeforeMidnight = payment.amountBeforeMidnight;
-              }
-              if (payment.amountAfterMidnight != null) {
-                row.amountAfterMidnightController.text = payment.amountAfterMidnight!.toStringAsFixed(2);
-                row.amountAfterMidnight = payment.amountAfterMidnight;
-              }
-              // If payment still has amount (migration might have failed), use it
-              if (payment.amount != null && 
-                  payment.amountBeforeMidnight == null && 
-                  payment.amountAfterMidnight == null) {
-                row.amountBeforeMidnightController.text = payment.amount!.toStringAsFixed(2);
-                row.amountBeforeMidnight = payment.amount;
-              }
-            } else {
-              // Legacy: use single amount field
-              if (payment.amount != null) {
-                row.amountController.text = payment.amount!.toStringAsFixed(2);
-            row.amount = payment.amount;
-              } else if (payment.amountBeforeMidnight != null || payment.amountAfterMidnight != null) {
-                // Migrate old data: combine the two amounts
-                final total = (payment.amountBeforeMidnight ?? 0) + (payment.amountAfterMidnight ?? 0);
-                row.amountController.text = total.toStringAsFixed(2);
-                row.amount = total;
-            }
-            }
-            
-            if (payment.notes != null) {
-              row.notesController.text = payment.notes!;
-            }
-            
-            if (payment.id != null) {
-              row.id = payment.id!;
-              _existingPaymentIds.add(payment.id!);
-            }
-            _payments.add(row);
-          }
-        });
-      } else {
-        setState(() {
-          _providers = providerNames;
-          _providerIdByName = providerIdByName;
-          _payments.clear();
-          _payments.add(QrPaymentRow());
-        });
       }
+      final updatedPayments = payments.isNotEmpty
+          ? await _dbService.getQrPayments(widget.selectedDate, branch.id)
+          : <QrPayment>[];
+
+      setState(() {
+        _isDirty = false;
+        _payments.clear();
+        _existingPaymentIds.clear();
+        _providers = List.from(providerNames);
+        _providerIdByName = providerIdByName;
+
+        for (var payment in updatedPayments) {
+          final row = QrPaymentRow();
+          row.provider = (payment.providerId != null &&
+                  providerIdToName.containsKey(payment.providerId))
+              ? providerIdToName[payment.providerId]!
+              : payment.provider;
+          row.isProviderLocked = true;
+          row.providerLabel = row.provider;
+
+          if (_useCustomClosing) {
+            if (payment.amountBeforeMidnight != null) {
+              row.amountBeforeMidnightController.text = payment.amountBeforeMidnight!.toStringAsFixed(2);
+              row.amountBeforeMidnight = payment.amountBeforeMidnight;
+            }
+            if (payment.amountAfterMidnight != null) {
+              row.amountAfterMidnightController.text = payment.amountAfterMidnight!.toStringAsFixed(2);
+              row.amountAfterMidnight = payment.amountAfterMidnight;
+            }
+            if (payment.amount != null &&
+                payment.amountBeforeMidnight == null &&
+                payment.amountAfterMidnight == null) {
+              row.amountBeforeMidnightController.text = payment.amount!.toStringAsFixed(2);
+              row.amountBeforeMidnight = payment.amount;
+            }
+          } else {
+            if (payment.amount != null) {
+              row.amountController.text = payment.amount!.toStringAsFixed(2);
+              row.amount = payment.amount;
+            } else if (payment.amountBeforeMidnight != null || payment.amountAfterMidnight != null) {
+              final total = (payment.amountBeforeMidnight ?? 0) + (payment.amountAfterMidnight ?? 0);
+              row.amountController.text = total.toStringAsFixed(2);
+              row.amount = total;
+            }
+          }
+          if (payment.notes != null) {
+            row.notesController.text = payment.notes!;
+          }
+          if (payment.id != null) {
+            row.id = payment.id!;
+            _existingPaymentIds.add(payment.id!);
+          }
+          _payments.add(row);
+        }
+
+        // Add one empty row per configured provider that has no entry yet (like Card Sales)
+        for (var p in upiProviders) {
+          final hasEntry = _payments.any((row) => row.provider == p.name);
+          if (hasEntry) continue;
+          final row = QrPaymentRow()
+            ..provider = p.name
+            ..isProviderLocked = true
+            ..providerLabel = p.name;
+          _payments.add(row);
+        }
+
+        if (_payments.isEmpty) {
+          _payments.add(QrPaymentRow());
+        }
+      });
     } catch (e) {
       debugPrint('Error loading QR payments: $e');
       setState(() {
+        _isDirty = false;
         _providers = _providers.isEmpty ? ['Others'] : _providers;
         _providerIdByName = {};
         _payments.clear();
@@ -193,12 +197,14 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
     } finally {
       setState(() {
         _isLoading = false;
+        _isDirty = false;
       });
     }
   }
 
   void _addNewPayment() {
     setState(() {
+      _isDirty = true;
       _payments.add(QrPaymentRow());
     });
   }
@@ -241,6 +247,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
     }
     
     setState(() {
+      _isDirty = true;
       _payments.removeAt(index);
       if (_payments.isEmpty) {
         _addNewPayment();
@@ -442,6 +449,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
       }
 
       if (mounted) {
+        if (savedCount > 0) setState(() => _isDirty = false);
         if (savedCount > 0) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -490,7 +498,14 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
       );
     }
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_isDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final discard = await showUnsavedChangesDialog(context);
+        if (discard && context.mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text('UPI - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
         actions: [
@@ -617,6 +632,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 
@@ -718,55 +734,62 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
             Row(
               children: [
                 Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: payment.provider != null && payment.provider!.isNotEmpty
-                        ? payment.provider
-                        : null,
-                    decoration: InputDecoration(
-                      labelText: 'Payment Provider',
-                      border: const OutlineInputBorder(),
-                      isDense: true,
-                      errorText: showProviderError ? 'Select provider' : null,
-                      errorBorder: showProviderError
-                          ? OutlineInputBorder(
-                              borderSide: const BorderSide(color: AppColors.error, width: 2),
-                            )
-                          : null,
-                      focusedErrorBorder: showProviderError
-                          ? OutlineInputBorder(
-                              borderSide: const BorderSide(color: AppColors.error, width: 2),
-                            )
-                          : null,
-                    ),
-                    items: _buildProviderDropdownItems(payment.provider),
-                    onChanged: (value) {
-                      setState(() {
-                        payment.provider = value;
-                        // Clear validation error when provider is selected
-                        if (value != null && value.isNotEmpty && _showValidationErrors) {
-                          // Check if all payments with amounts have providers now
-                          bool allValid = true;
-                          for (var p in _payments) {
-                            final hasAmountValue = _useCustomClosing
-                                ? ((p.amountBeforeMidnight != null && p.amountBeforeMidnight! > 0) ||
-                                   (p.amountAfterMidnight != null && p.amountAfterMidnight! > 0))
-                                : (p.amount != null && p.amount! > 0);
-                            if (hasAmountValue && (p.provider == null || p.provider!.isEmpty)) {
-                              allValid = false;
-                              break;
-                            }
-                          }
-                          if (allValid) {
-                            _showValidationErrors = false;
-                          }
-                        }
-                      });
-                    },
-                  ),
+                  child: payment.isProviderLocked
+                      ? InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Payment Provider',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          child: Text(payment.providerLabel ?? payment.provider ?? 'Provider'),
+                        )
+                      : DropdownButtonFormField<String>(
+                          initialValue: payment.provider != null && payment.provider!.isNotEmpty
+                              ? payment.provider
+                              : null,
+                          decoration: InputDecoration(
+                            labelText: 'Payment Provider',
+                            border: const OutlineInputBorder(),
+                            isDense: true,
+                            errorText: showProviderError ? 'Select provider' : null,
+                            errorBorder: showProviderError
+                                ? OutlineInputBorder(
+                                    borderSide: const BorderSide(color: AppColors.error, width: 2),
+                                  )
+                                : null,
+                            focusedErrorBorder: showProviderError
+                                ? OutlineInputBorder(
+                                    borderSide: const BorderSide(color: AppColors.error, width: 2),
+                                  )
+                                : null,
+                          ),
+                          items: _buildProviderDropdownItems(payment.provider),
+                          onChanged: (value) {
+                            setState(() {
+                              _isDirty = true;
+                              payment.provider = value;
+                              if (value != null && value.isNotEmpty && _showValidationErrors) {
+                                bool allValid = true;
+                                for (var p in _payments) {
+                                  final hasAmountValue = _useCustomClosing
+                                      ? ((p.amountBeforeMidnight != null && p.amountBeforeMidnight! > 0) ||
+                                         (p.amountAfterMidnight != null && p.amountAfterMidnight! > 0))
+                                      : (p.amount != null && p.amount! > 0);
+                                  if (hasAmountValue && (p.provider == null || p.provider!.isEmpty)) {
+                                    allValid = false;
+                                    break;
+                                  }
+                                }
+                                if (allValid) _showValidationErrors = false;
+                              }
+                            });
+                          },
+                        ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline, color: AppColors.error),
                   onPressed: () => _removePayment(index),
+                  tooltip: 'Delete',
                 ),
               ],
             ),
@@ -786,6 +809,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                 ],
                 onChanged: (value) {
                   setState(() {
+                    _isDirty = true;
                     payment.amountBeforeMidnight = value.isEmpty
                         ? null
                         : double.tryParse(value);
@@ -807,6 +831,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                 ],
                 onChanged: (value) {
                   setState(() {
+                    _isDirty = true;
                     payment.amountAfterMidnight = value.isEmpty
                         ? null
                         : double.tryParse(value);
@@ -828,6 +853,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
               ],
               onChanged: (value) {
                 setState(() {
+                  _isDirty = true;
                   payment.amount = value.isEmpty
                       ? null
                       : double.tryParse(value);
@@ -843,6 +869,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                 border: OutlineInputBorder(),
                 isDense: true,
               ),
+              onChanged: (_) => setState(() => _isDirty = true),
               maxLines: 2,
             ),
           ],
@@ -858,6 +885,8 @@ class QrPaymentRow {
   final TextEditingController amountAfterMidnightController = TextEditingController();
   final TextEditingController notesController = TextEditingController();
   String? provider;
+  bool isProviderLocked = false;
+  String? providerLabel;
   double? amount; // Used when custom closing is disabled
   double? amountBeforeMidnight; // Sales before 12 AM
   double? amountAfterMidnight; // Sales after 12 AM until closing time

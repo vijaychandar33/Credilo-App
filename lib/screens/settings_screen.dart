@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../utils/app_colors.dart';
 import '../services/auth_service.dart';
+import '../services/theme_service.dart';
 import '../models/user.dart';
 import 'profile_screen.dart';
 import 'login_screen.dart';
@@ -76,7 +77,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       authService.ownerBranches[i].location,
                       style: TextStyle(
                         fontSize: 12,
-                        color: AppColors.textSecondary,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                     ),
                     trailing: const Icon(Icons.chevron_right),
@@ -96,11 +97,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ],
                 if (authService.ownerBranches.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(16),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
                     child: Text(
                       'No branches',
-                      style: TextStyle(color: AppColors.textSecondary),
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                   ),
               ],
@@ -133,6 +134,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 24),
               ],
             ),
+          const SizedBox(height: 24),
+
+          // Appearance Section
+          _buildSectionHeader('Appearance'),
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.dark_mode_outlined),
+                  title: const Text('Dark theme'),
+                  subtitle: const Text('Black background (default)'),
+                  trailing: ThemeService.current == ThemeMode.dark
+                      ? const Icon(Icons.check_circle, color: AppColors.primary)
+                      : null,
+                  onTap: () async {
+                    await ThemeService.setThemeMode(ThemeMode.dark);
+                    if (mounted) setState(() {});
+                  },
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.light_mode_outlined),
+                  title: const Text('Light theme'),
+                  subtitle: const Text('White background'),
+                  trailing: ThemeService.current == ThemeMode.light
+                      ? const Icon(Icons.check_circle, color: AppColors.primary)
+                      : null,
+                  onTap: () async {
+                    await ThemeService.setThemeMode(ThemeMode.light);
+                    if (mounted) setState(() {});
+                  },
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 24),
 
           // App Section
@@ -204,6 +240,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildSectionHeader(String title) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8, top: 8),
       child: Text(
@@ -211,7 +248,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         style: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w600,
-          color: AppColors.textSecondary,
+          color: theme.colorScheme.onSurfaceVariant,
           letterSpacing: 0.5,
         ),
       ),

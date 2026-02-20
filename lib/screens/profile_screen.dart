@@ -56,11 +56,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       final supabase = Supabase.instance.client;
 
-      // Update user in database
+      // Update user in database (name and phone only; email is not editable)
       await supabase.from('users').update({
         'name': _nameController.text.trim(),
         'phone': _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
-        'email': _emailController.text.trim().isEmpty ? null : _emailController.text.trim(),
       }).eq('id', user.id);
 
       // Reload user data
@@ -244,19 +243,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 border: OutlineInputBorder(),
                                 hintText: 'Optional',
                               ),
-                              enabled: _isEditing,
+                              readOnly: true,
                               keyboardType: TextInputType.emailAddress,
-                              validator: (value) {
-                                if (value != null && value.trim().isNotEmpty) {
-                                  final emailRegex = RegExp(
-                                    r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
-                                  );
-                                  if (!emailRegex.hasMatch(value.trim())) {
-                                    return 'Please enter a valid email';
-                                  }
-                                }
-                                return null;
-                              },
                             ),
                           ],
                         ),
@@ -316,7 +304,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                           const SizedBox(width: 16),
                           Expanded(
-                            child: ElevatedButton(
+                            child: OutlinedButton(
                               onPressed: _isSaving ? null : _saveProfile,
                               child: _isSaving
                                   ? const SizedBox(

@@ -8,6 +8,7 @@ import '../services/auth_service.dart';
 import '../utils/currency_formatter.dart';
 import '../utils/delete_confirmation_dialog.dart';
 import '../utils/error_message_helper.dart';
+import '../utils/unsaved_changes_dialog.dart';
 
 class OnlineExpenseScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -25,6 +26,7 @@ class _OnlineExpenseScreenState extends State<OnlineExpenseScreen> {
   bool _isSaving = false;
   bool _isLoading = false;
   bool _showValidationErrors = false;
+  bool _isDirty = false;
   final List<String> _existingExpenseIds = []; // Track existing expense IDs
   final List<String> _categories = [
     'Supplies',
@@ -58,6 +60,7 @@ class _OnlineExpenseScreenState extends State<OnlineExpenseScreen> {
       
       if (expenses.isNotEmpty) {
         setState(() {
+          _isDirty = false;
           _expenses.clear();
           _existingExpenseIds.clear();
           for (var expense in expenses) {
@@ -85,12 +88,14 @@ class _OnlineExpenseScreenState extends State<OnlineExpenseScreen> {
     } finally {
       setState(() {
         _isLoading = false;
+        _isDirty = false;
       });
     }
   }
 
   void _addNewRow() {
     setState(() {
+      _isDirty = true;
       _expenses.add(OnlineExpenseRow());
     });
   }
@@ -119,6 +124,7 @@ class _OnlineExpenseScreenState extends State<OnlineExpenseScreen> {
     }
     
     setState(() {
+      _isDirty = true;
       _expenses.removeAt(index);
       if (_expenses.isEmpty) {
         _addNewRow();
@@ -221,6 +227,7 @@ class _OnlineExpenseScreenState extends State<OnlineExpenseScreen> {
       await _loadData();
 
       if (mounted) {
+        setState(() => _isDirty = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Expenses saved successfully')),
         );
@@ -253,7 +260,14 @@ class _OnlineExpenseScreenState extends State<OnlineExpenseScreen> {
       );
     }
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_isDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final discard = await showUnsavedChangesDialog(context);
+        if (discard && context.mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text('Online Daily Expense - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
       ),
@@ -340,6 +354,7 @@ class _OnlineExpenseScreenState extends State<OnlineExpenseScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 
@@ -368,6 +383,7 @@ class _OnlineExpenseScreenState extends State<OnlineExpenseScreen> {
                       isDense: true,
                       errorText: showItemError ? 'Enter item' : null,
                     ),
+                    onChanged: (_) => setState(() => _isDirty = true),
                   ),
                 ),
                 IconButton(
@@ -394,6 +410,7 @@ class _OnlineExpenseScreenState extends State<OnlineExpenseScreen> {
                     }).toList(),
                     onChanged: (value) {
                       setState(() {
+                        _isDirty = true;
                         expense.category = value;
                       });
                     },
@@ -416,12 +433,12 @@ class _OnlineExpenseScreenState extends State<OnlineExpenseScreen> {
                     ],
                     onChanged: (value) {
                       setState(() {
+                        _isDirty = true;
                         expense.amount = value.isEmpty
                             ? null
                             : double.tryParse(value);
                       });
                     },
-                    autofocus: index == _expenses.length - 1 && expense.amount == null,
                   ),
                 ),
               ],
@@ -435,6 +452,7 @@ class _OnlineExpenseScreenState extends State<OnlineExpenseScreen> {
                 isDense: true,
               ),
               maxLines: 2,
+              onChanged: (_) => setState(() => _isDirty = true),
             ),
           ],
         ),
