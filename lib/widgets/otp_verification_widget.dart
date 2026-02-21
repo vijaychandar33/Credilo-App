@@ -3,6 +3,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../utils/app_colors.dart';
 import '../utils/error_message_helper.dart';
 
+/// Test account for App Review / QA. Only this email can use the fixed OTP.
+/// Ensure this user's password is set to [kAppReviewTestOtp] in Supabase Auth.
+const String kAppReviewTestEmail = 'test@credilo.app';
+const String kAppReviewTestOtp = '87654321';
+
 class OtpVerificationWidget extends StatefulWidget {
   final String email;
   final VoidCallback onVerified;
@@ -40,12 +45,26 @@ class _OtpVerificationWidgetState extends State<OtpVerificationWidget> {
       _isLoading = true;
     });
 
+    final token = _otpController.text.trim();
+    final isAppReviewTest = widget.email.trim().toLowerCase() == kAppReviewTestEmail &&
+        token == kAppReviewTestOtp;
+
     try {
-      final response = await Supabase.instance.client.auth.verifyOTP(
-        type: OtpType.email,
-        email: widget.email,
-        token: _otpController.text.trim(),
-      );
+      if (isAppReviewTest) {
+        // Bypass OTP for App Review test account: sign in with password
+        await Supabase.instance.client.auth.signInWithPassword(
+          email: widget.email.trim(),
+          password: kAppReviewTestOtp,
+        );
+      }
+
+      final response = isAppReviewTest
+          ? AuthResponse(session: Supabase.instance.client.auth.currentSession, user: Supabase.instance.client.auth.currentUser)
+          : await Supabase.instance.client.auth.verifyOTP(
+              type: OtpType.email,
+              email: widget.email,
+              token: token,
+            );
 
       if (response.session != null) {
         // Wait a bit for session to be fully established

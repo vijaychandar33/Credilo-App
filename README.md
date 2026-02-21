@@ -287,8 +287,15 @@ flutter build ios --release
 4. Update `lib/config/supabase_config.dart` with your credentials
 5. Configure email templates in Authentication → Email Templates (optional: use the 8-digit OTP template from `EMAIL_TEMPLATE_8DIGIT.html` for better UX)
 
-### Environment Variables
-Supabase credentials are stored in `lib/config/supabase_config.dart`. For production, consider using environment variables or secure storage.
+### Where keys and secrets are stored
+
+| Secret | Location | In repo? |
+|--------|----------|----------|
+| **Supabase URL & anon key** | `lib/config/supabase_config.dart` | Yes (replace with your own; consider env for production) |
+| **Android signing** | `android/key.properties` (passwords, alias, storeFile path) | No (in `.gitignore`) |
+| **Android keystore** | `android/app/upload-keystore.jks` (or path in `key.properties`) | No (in `.gitignore`) |
+
+There are **no `.env` or environment variables** used by the app at build or runtime. Supabase is configured in code; Android release signing reads `android/key.properties` at build time. For production, consider loading Supabase credentials from CI secrets or a secure config (e.g. `flutter_dotenv` + `.env` not committed) instead of hardcoding.
 
 ## Security Considerations
 
@@ -316,6 +323,103 @@ Supabase credentials are stored in `lib/config/supabase_config.dart`. For produc
 - Check Supabase connection
 - Verify database service methods
 - Check for error logs in console
+
+## App Store (iOS) Release
+
+### Prerequisites
+
+- **Apple Developer Program** membership (team: Zyntel X / PA83972LRU)
+- **App Store Connect**: Agreements signed (Business), Tax & Banking if offering paid/IAP
+- **Certificates, Identifiers & Profiles**: App ID registered for `com.zyntelx.credilo`
+- **Devices**: At least one physical iOS device registered (required for automatic signing until first distribution profile exists)
+
+### Build & Upload
+
+1. **Open in Xcode** (use the workspace, not the project):
+   ```bash
+   open ios/Runner.xcworkspace
+   ```
+2. **Select destination**: **Any iOS Device (arm64)** (not a simulator).
+3. **Archive**: **Product → Archive**.
+4. **Distribute**: In Organizer → select the archive → **Distribute App** → **App Store Connect** → **Upload**.
+
+### App Store Connect Checklist
+
+- **App Information**: Primary category = **Finance** (required). Secondary optional (e.g. Business).
+- **Version metadata**: Description, keywords, Support URL, Copyright, screenshots (min 3 for 6.5" iPhone).
+- **App Review**: Sign-in required; use test account (see below). Contact info (name, phone, email) and Notes for OTP.
+- **App Privacy**: Declare data collection (e.g. Name, Email, Phone if collected, Other Financial Info, User ID). Purpose: App functionality; not used for tracking.
+- **Age Rating**: Complete all 7 steps (Features, Mature Themes, Medical, Sexuality, Violence, Chance-Based, Additional). For Credilo: all NO/NONE → typically **4+**.
+- **Pricing and Availability**: Set price (e.g. Free) and availability.
+- **Encryption**: If prompted, choose **None** (only standard HTTPS/TLS).
+- **Content Rights**: No third-party content → select "No".
+
+### Test Account for App Review
+
+- **Email**: `test@credilo.app`
+- **Verification code (OTP)**: `87654321` (no email needed; app uses password sign-in for this account only)
+- Ensure this user exists in Supabase Auth with **password** set to `87654321` (e.g. via Supabase Dashboard or Auth Admin API / SQL update to `auth.users`).
+
+### iOS-Specific Notes
+
+- **iPad multitasking**: `ios/Runner/Info.plist` must include all four orientations for iPad (`UISupportedInterfaceOrientations~ipad`): Portrait, PortraitUpsideDown, LandscapeLeft, LandscapeRight. Missing landscape causes upload validation failure.
+- **Bundle ID**: Must match App ID in developer account (`com.zyntelx.credilo`).
+- **Team**: Xcode project uses `DEVELOPMENT_TEAM = PA83972LRU` (Zyntel X).
+
+### After Upload
+
+- Build appears in App Store Connect under the app version after processing (often 5–30 min).
+- Select the build for the version → **Add for Review** → **Submit for Review**.
+
+---
+
+## Android (Google Play) Release
+
+### Signing key (important)
+
+Release builds for Play Store must be signed with a **keystore**. If you lose the keystore or its passwords, you **cannot** publish updates to the same app on Play Store.
+
+**1. Create the keystore (one-time)**
+
+From project root:
+```bash
+cd android/app
+./create_keystore.sh
+```
+Or use `create_keystore_auto.sh` for non-interactive creation (passwords are generated and written to `android/keystore_passwords.txt`).
+
+This creates:
+- **Keystore file**: `android/app/upload-keystore.jks` (or the path you chose)
+- **Passwords**: You set store password and key password; save them securely.
+
+**2. `key.properties` (do not commit)**
+
+Create or update `android/key.properties` (this file is in `.gitignore`):
+
+```properties
+storePassword=YOUR_STORE_PASSWORD
+keyPassword=YOUR_KEY_PASSWORD
+keyAlias=upload
+storeFile=upload-keystore.jks
+```
+
+- `storeFile` is relative to `android/app/` (e.g. `upload-keystore.jks` if the keystore is in `android/app/`).
+- Without `key.properties`, release builds fall back to debug signing and are not accepted by Play Store.
+
+**3. Build release bundle for Play Store**
+
+```bash
+flutter build appbundle --release
+```
+
+Output: `build/app/outputs/bundle/release/app-release.aab`. Upload this in Google Play Console.
+
+**4. Backup (critical)**
+
+- Back up `upload-keystore.jks` and the store/key passwords in a secure place (e.g. password manager or secure storage).
+- Do **not** commit `key.properties` or `*.jks` to version control.
+
+---
 
 ## Contributing
 
