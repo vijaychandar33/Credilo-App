@@ -403,16 +403,17 @@ class _BranchDetailScreenState extends State<BranchDetailScreen> {
                     'Manage recurring expenses like rent, electricity, and other fixed costs',
                   ),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => FixedExpenseScreen(
-                          selectedDate: DateTime.now(),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => FixedExpenseScreen(
+                            selectedDate: DateTime.now(),
+                            branch: _branch,
+                          ),
                         ),
-                      ),
-                    );
-                  },
+                      );
+                    },
                 ),
               ),
               const SizedBox(height: 24),

@@ -444,37 +444,34 @@ class _SafeManagementScreenState extends State<SafeManagementScreen> {
                     
                     const SizedBox(height: 8),
                     
-                    // Transactions List
-                    ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxHeight: MediaQuery.of(context).size.height * 0.4,
-                      ),
-                      child: _transactions.isEmpty
-                          ? Padding(
-                              padding: const EdgeInsets.all(32.0),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.inbox_outlined,
-                                    size: 64,
+                    // Transactions List (no inner scroll; entire page scrolls)
+                    _transactions.isEmpty
+                        ? Padding(
+                            padding: const EdgeInsets.all(32.0),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.inbox_outlined,
+                                  size: 64,
+                                  color: Theme.of(context).colorScheme.outline,
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'No transactions found',
+                                  style: TextStyle(
                                     color: Theme.of(context).colorScheme.outline,
                                   ),
-                                  const SizedBox(height: 16),
-                                  Text(
-                                    'No transactions found',
-                                    style: TextStyle(
-                                      color: Theme.of(context).colorScheme.outline,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )
-                          : ListView.builder(
-                              shrinkWrap: true,
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              itemCount: _transactions.length,
-                              itemBuilder: (context, index) {
+                                ),
+                              ],
+                            ),
+                          )
+                        : ListView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            itemCount: _transactions.length,
+                            itemBuilder: (context, index) {
                               final transaction = _transactions[index];
                               final isDeposit = transaction.type == SafeTransactionType.deposit;
                               
@@ -538,7 +535,6 @@ class _SafeManagementScreenState extends State<SafeManagementScreen> {
                               );
                               },
                             ),
-                    ),
                     const SizedBox(height: 16),
                   ],
                 ),

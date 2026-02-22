@@ -14,8 +14,11 @@ import '../widgets/date_selector.dart';
 
 class FixedExpenseScreen extends StatefulWidget {
   final DateTime selectedDate;
+  /// When opening from Branch settings, pass the branch so the screen shows that branch.
+  /// When null, uses [AuthService.currentBranch].
+  final Branch? branch;
 
-  const FixedExpenseScreen({super.key, required this.selectedDate});
+  const FixedExpenseScreen({super.key, required this.selectedDate, this.branch});
 
   @override
   State<FixedExpenseScreen> createState() => _FixedExpenseScreenState();
@@ -36,6 +39,8 @@ class _FixedExpenseScreenState extends State<FixedExpenseScreen> {
   DateTime? _customEndDate;
   final DateFormat _dateFormat = DateFormat('d MMM yyyy');
 
+  Branch? get _branch => widget.branch ?? _authService.currentBranch;
+
   @override
   void initState() {
     super.initState();
@@ -49,7 +54,7 @@ class _FixedExpenseScreenState extends State<FixedExpenseScreen> {
     });
 
     try {
-      final branch = _authService.currentBranch;
+      final branch = _branch;
       if (branch == null) return;
 
       // Get date range based on selected option
@@ -102,7 +107,7 @@ class _FixedExpenseScreenState extends State<FixedExpenseScreen> {
     }
 
     final user = _authService.currentUser;
-    final branch = _authService.currentBranch;
+    final branch = _branch;
 
     if (user == null || branch == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -185,10 +190,11 @@ class _FixedExpenseScreenState extends State<FixedExpenseScreen> {
     return _authService.canDelete();
   }
 
-  bool _isSameDate(DateTime date1, DateTime date2) {
-    return date1.year == date2.year &&
-           date1.month == date2.month &&
-           date1.day == date2.day;
+  /// True if [expenseDate] matches the date selected in the top date picker. Delete icon shown only for that date.
+  bool _isSelectedDate(DateTime expenseDate) {
+    return expenseDate.year == _selectedDate.year &&
+           expenseDate.month == _selectedDate.month &&
+           expenseDate.day == _selectedDate.day;
   }
 
   void _onDateSelected(DateTime date) {
@@ -262,7 +268,7 @@ class _FixedExpenseScreenState extends State<FixedExpenseScreen> {
   }
 
   Widget _buildBranchDetailsCard(BuildContext context, AuthService authService) {
-    final branch = authService.currentBranch;
+    final branch = _branch;
     if (branch == null) return const SizedBox.shrink();
 
     return Container(
@@ -421,23 +427,20 @@ class _FixedExpenseScreenState extends State<FixedExpenseScreen> {
           ? const Center(child: CircularProgressIndicator())
           : SafeArea(
               top: false,
-              child: Column(
-                children: [
-                  // Branch Details Card
-                  if (_authService.currentBranch != null)
-                    _buildBranchDetailsCard(context, _authService),
-                  // Date Selector
-                  DateSelector(
-                    selectedDate: _selectedDate,
-                    onDateSelected: _onDateSelected,
-                  ),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // Add Expense Section
-                          Card(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Branch Details Card
+                    if (_branch != null)
+                      _buildBranchDetailsCard(context, _authService),
+                    // Date Selector
+                    DateSelector(
+                      selectedDate: _selectedDate,
+                      onDateSelected: _onDateSelected,
+                    ),
+                    // Add Expense Section
+                    Card(
                             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                             child: Padding(
                               padding: const EdgeInsets.all(16),
@@ -518,37 +521,34 @@ class _FixedExpenseScreenState extends State<FixedExpenseScreen> {
                           
                           const SizedBox(height: 8),
                           
-                          // Expenses List
-                          ConstrainedBox(
-                            constraints: BoxConstraints(
-                              maxHeight: MediaQuery.of(context).size.height * 0.5,
-                            ),
-                            child: _expenses.isEmpty
-                                ? Padding(
-                                    padding: const EdgeInsets.all(32.0),
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          Icons.inbox_outlined,
-                                          size: 64,
+                          // Expenses List (no inner scroll; entire page scrolls)
+                          _expenses.isEmpty
+                              ? Padding(
+                                  padding: const EdgeInsets.all(32.0),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.inbox_outlined,
+                                        size: 64,
+                                        color: Theme.of(context).colorScheme.outline,
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Text(
+                                        'No expenses found',
+                                        style: TextStyle(
                                           color: Theme.of(context).colorScheme.outline,
                                         ),
-                                        const SizedBox(height: 16),
-                                        Text(
-                                          'No expenses found',
-                                          style: TextStyle(
-                                            color: Theme.of(context).colorScheme.outline,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  )
-                                : ListView.builder(
-                                    shrinkWrap: true,
-                                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                                    itemCount: _expenses.length,
-                                    itemBuilder: (context, index) {
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              : ListView.builder(
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                                  itemCount: _expenses.length,
+                                  itemBuilder: (context, index) {
                                       final expense = _expenses[index];
                                       
                                       return Card(
@@ -562,27 +562,36 @@ class _FixedExpenseScreenState extends State<FixedExpenseScreen> {
                                             ),
                                           ),
                                           title: Text(
-                                            _getCategoryDisplayName(expense.category),
+                                            expense.category == 'other'
+                                                ? (expense.note != null && expense.note!.isNotEmpty
+                                                    ? expense.note!
+                                                    : DateFormat('d MMM yyyy').format(expense.date))
+                                                : _getCategoryDisplayName(expense.category),
                                             style: const TextStyle(
                                               fontWeight: FontWeight.w600,
                                             ),
                                           ),
-                                          subtitle: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                DateFormat('d MMM yyyy').format(expense.date),
-                                              ),
-                                              if (expense.note != null && expense.note!.isNotEmpty)
-                                                Text(
-                                                  expense.note!,
-                                                  style: TextStyle(
-                                                    fontSize: 12,
-                                                    color: Theme.of(context).colorScheme.outline,
-                                                  ),
+                                          subtitle: expense.category == 'other'
+                                              ? (expense.note != null && expense.note!.isNotEmpty
+                                                  ? Text(DateFormat('d MMM yyyy').format(expense.date))
+                                                  : null)
+                                              : Column(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    Text(
+                                                      DateFormat('d MMM yyyy').format(expense.date),
+                                                    ),
+                                                    if (expense.note != null && expense.note!.isNotEmpty)
+                                                      Text(
+                                                        expense.note!,
+                                                        style: TextStyle(
+                                                          fontSize: 12,
+                                                          color: Theme.of(context).colorScheme.outline,
+                                                        ),
+                                                      ),
+                                                  ],
                                                 ),
-                                            ],
-                                          ),
                                           trailing: Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
@@ -594,8 +603,8 @@ class _FixedExpenseScreenState extends State<FixedExpenseScreen> {
                                                   color: Theme.of(context).colorScheme.error,
                                                 ),
                                               ),
-                                              if (_canDelete() && 
-                                                  _isSameDate(expense.date, _selectedDate))
+                                              if (_canDelete() &&
+                                                  _isSelectedDate(expense.date))
                                                 IconButton(
                                                   icon: const Icon(Icons.delete_outline),
                                                   color: Colors.red,
@@ -608,14 +617,10 @@ class _FixedExpenseScreenState extends State<FixedExpenseScreen> {
                                       );
                                     },
                                   ),
-                          ),
                           const SizedBox(height: 16),
                         ],
                       ),
                     ),
-                  ),
-                ],
-              ),
             ),
     );
   }
