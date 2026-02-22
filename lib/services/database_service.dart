@@ -1514,7 +1514,7 @@ class DatabaseService {
         query = query.lte('date', endDate.toIso8601String().split('T')[0]);
       }
 
-      final response = await query.order('created_at', ascending: true);
+      final response = await query.order('created_at', ascending: false);
 
       return (response as List)
           .map((json) => SafeTransaction.fromJson(json))
@@ -1564,7 +1564,7 @@ class DatabaseService {
         query = query.lte('date', endDate.toIso8601String().split('T')[0]);
       }
 
-      final response = await query.order('date', ascending: false);
+      final response = await query.order('created_at', ascending: false);
       return (response as List)
           .map((item) => FixedExpense.fromJson(item))
           .toList();
