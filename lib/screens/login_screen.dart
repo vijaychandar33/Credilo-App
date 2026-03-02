@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:io' show Platform;
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import '../services/auth_service.dart';
 import '../models/user.dart' as models;
@@ -263,14 +264,55 @@ class _LoginScreenState extends State<LoginScreen> {
             // Don't rethrow - let user see the error and try again
           }
         } else {
-          // No pending invitation - registration flow
+          // No pending invitation
           debugPrint('Auth: ✗✗✗ NO PENDING INVITATION FOUND ✗✗✗');
           debugPrint('Auth: Email searched: $userEmail');
-          debugPrint('Auth: Showing registration form...');
-          setState(() {
-            _otpVerified = true;
-            _showRegistrationForm = true;
-          });
+
+          if (Platform.isIOS) {
+            // iOS: do NOT allow in-app business/organization registration
+            debugPrint('Auth: iOS platform detected - blocking registration flow.');
+
+            if (mounted) {
+              await showDialog<void>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Account not found'),
+                  content: const Text(
+                    'This iOS app only supports logins for existing business accounts. '
+                    'Please contact your administrator to get access.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: const Text('OK'),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            // Sign out the temporary auth session and reset back to the email step
+            try {
+              await Supabase.instance.client.auth.signOut();
+            } catch (e) {
+              debugPrint('Auth: Error signing out after blocked registration: $e');
+            }
+
+            if (mounted) {
+              setState(() {
+                _otpSent = false;
+                _otpVerified = false;
+                _showRegistrationForm = false;
+              });
+            }
+          } else {
+            // Non-iOS platforms: show registration form
+            debugPrint('Auth: Showing registration form (non-iOS platform)...');
+            setState(() {
+              _otpVerified = true;
+              _showRegistrationForm = true;
+            });
+          }
         }
       }
     } catch (e) {
