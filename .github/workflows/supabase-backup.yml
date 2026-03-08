@@ -19,19 +19,18 @@ jobs:
       FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
       FTP_REMOTE_DIR: ${{ secrets.FTP_REMOTE_DIR }}
     steps:
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
       - name: Dump Supabase DB
         run: |
           set -e
-          # Supabase requires SSL; ensure it's in the URL
+          # Supabase requires SSL
           if [[ "$SUPABASE_DB_URL" != *"sslmode="* ]]; then
-            if [[ "$SUPABASE_DB_URL" == *"?"* ]]; then
-              export SUPABASE_DB_URL="${SUPABASE_DB_URL}&sslmode=require"
-            else
-              export SUPABASE_DB_URL="${SUPABASE_DB_URL}?sslmode=require"
-            fi
+            [[ "$SUPABASE_DB_URL" == *"?"* ]] && export SUPABASE_DB_URL="${SUPABASE_DB_URL}&sslmode=require" || export SUPABASE_DB_URL="${SUPABASE_DB_URL}?sslmode=require"
           fi
-          echo "Running supabase db dump..."
-          npx -y supabase@latest db dump --db-url "$SUPABASE_DB_URL" -f backup.sql
+          echo "Running pg_dump (no Docker)..."
+          pg_dump "$SUPABASE_DB_URL" --no-owner --no-acl -f backup.sql
           gzip -f backup.sql
           mv backup.sql.gz "backup-$(date -u +%Y%m%d-%H%M).sql.gz"
           echo "Dump done: $(ls -la backup-*.sql.gz)"
