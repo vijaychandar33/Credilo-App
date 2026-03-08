@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import '../utils/app_colors.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import '../models/branch.dart';
 import '../services/auth_service.dart';
+import '../utils/error_message_helper.dart';
 
 class AddBranchScreen extends StatefulWidget {
   const AddBranchScreen({super.key});
@@ -37,27 +39,45 @@ class _AddBranchScreenState extends State<AddBranchScreen> {
         throw Exception('User not logged in');
       }
 
-      // Get user's business
-      final businessResponse = await Supabase.instance.client
+      // Get user's business (user must own all branches of a business)
+      // Find businesses where user owns all branches
+      String? businessId;
+      final allBusinessesResponse = await Supabase.instance.client
           .from('businesses')
-          .select()
-          .eq('owner_id', currentUser.id)
-          .maybeSingle();
-
-      if (businessResponse == null) {
-        throw Exception('Business not found');
+          .select('id');
+      
+      for (var biz in allBusinessesResponse as List) {
+        final bid = biz['id'] as String;
+        
+        // Check if user is a business owner of this business
+        final businessOwnerCheck = await Supabase.instance.client
+            .from('branch_users')
+            .select()
+            .eq('user_id', currentUser.id)
+            .eq('business_id', bid)
+            .eq('role', 'business_owner')
+            .limit(1)
+            .maybeSingle();
+        
+        if (businessOwnerCheck != null) {
+          businessId = bid;
+          break;
+        }
       }
 
-      final businessId = businessResponse['id'] as String;
+      if (businessId == null) {
+        throw Exception('Business not found. You must be a business owner to add branches.');
+      }
+
+      final supabase = Supabase.instance.client;
 
       // Create branch
-      final branchResponse = await Supabase.instance.client
+      final branchResponse = await supabase
           .from('branches')
           .insert({
             'business_id': businessId,
             'name': _nameController.text.trim(),
             'location': _locationController.text.trim(),
-            'manager_id': currentUser.id,
             'status': 'active',
           })
           .select()
@@ -65,12 +85,40 @@ class _AddBranchScreenState extends State<AddBranchScreen> {
 
       final branch = Branch.fromJson(branchResponse);
 
-      // Assign current user as owner to the branch
-      await Supabase.instance.client.from('branch_users').insert({
-        'branch_id': branch.id,
-        'user_id': currentUser.id,
-        'role': 'owner',
-      });
+      // Note: Database trigger will automatically assign all business owners to the new branch
+      // But we'll also do it here as a backup to ensure it works
+      // Fetch all distinct business owners for this business
+      final ownersResponse = await supabase
+          .from('branch_users')
+          .select('user_id')
+          .eq('business_id', businessId)
+          .eq('role', 'business_owner');
+
+      final ownerIds = (ownersResponse as List)
+          .map((record) => record['user_id'] as String?)
+          .whereType<String>()
+          .toSet();
+
+      // Ensure current user is included
+      ownerIds.add(currentUser.id);
+
+      // Assign every business owner to the new branch as business_owner
+      // (Database trigger should handle this, but this ensures it works)
+      for (final ownerId in ownerIds) {
+        try {
+          await supabase.from('branch_users').upsert(
+            {
+              'branch_id': branch.id,
+              'user_id': ownerId,
+              'business_id': businessId,
+              'role': 'business_owner',
+            },
+            onConflict: 'branch_id,user_id',
+          );
+        } catch (e) {
+          debugPrint('Error assigning business owner $ownerId to new branch ${branch.id}: $e');
+        }
+      }
 
       // Refresh branches in auth service
       await authService.refreshBranches();
@@ -80,7 +128,7 @@ class _AddBranchScreenState extends State<AddBranchScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Branch added successfully'),
-            backgroundColor: Colors.green,
+            backgroundColor: AppColors.success,
           ),
         );
         Navigator.pop(context, branch);
@@ -91,10 +139,11 @@ class _AddBranchScreenState extends State<AddBranchScreen> {
       });
 
       if (mounted) {
+        final errorMessage = ErrorMessageHelper.getUserFriendlyError(e);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            backgroundColor: Colors.red,
+            content: Text(errorMessage),
+            backgroundColor: AppColors.error,
           ),
         );
       }

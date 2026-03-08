@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../utils/app_colors.dart';
+import '../utils/error_message_helper.dart';
 import '../models/user.dart';
 import '../services/auth_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -54,11 +56,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       final supabase = Supabase.instance.client;
 
-      // Update user in database
+      // Update user in database (name and phone only; email is not editable)
       await supabase.from('users').update({
         'name': _nameController.text.trim(),
         'phone': _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
-        'email': _emailController.text.trim().isEmpty ? null : _emailController.text.trim(),
       }).eq('id', user.id);
 
       // Reload user data
@@ -81,7 +82,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error updating profile: $e')),
+          SnackBar(content: Text('Unable to update profile. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
         );
       }
     }
@@ -101,8 +102,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final role = _authService.currentRole;
     if (role == null) return 'No role assigned';
     switch (role) {
+      case UserRole.businessOwner:
+        return 'Business Owner';
+      case UserRole.businessOwnerReadOnly:
+        return 'Business Owner (Read-Only)';
       case UserRole.owner:
         return 'Owner';
+      case UserRole.ownerReadOnly:
+        return 'Owner (Read-Only)';
       case UserRole.manager:
         return 'Manager';
       case UserRole.staff:
@@ -130,15 +137,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
         ],
       ),
-      body: user == null
-          ? const Center(child: Text('User not found'))
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
+      body: SafeArea(
+        top: false,
+        child: user == null
+            ? const Center(child: Text('User not found'))
+            : SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
                     // Profile Header
                     Card(
                       child: Padding(
@@ -173,7 +182,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 user.email!,
                                 style: TextStyle(
                                   fontSize: 14,
-                                  color: Colors.grey[600],
+                                  color: AppColors.textTertiary,
                                 ),
                               ),
                             ],
@@ -234,19 +243,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 border: OutlineInputBorder(),
                                 hintText: 'Optional',
                               ),
-                              enabled: _isEditing,
+                              readOnly: true,
                               keyboardType: TextInputType.emailAddress,
-                              validator: (value) {
-                                if (value != null && value.trim().isNotEmpty) {
-                                  final emailRegex = RegExp(
-                                    r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
-                                  );
-                                  if (!emailRegex.hasMatch(value.trim())) {
-                                    return 'Please enter a valid email';
-                                  }
-                                }
-                                return null;
-                              },
                             ),
                           ],
                         ),
@@ -306,7 +304,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                           const SizedBox(width: 16),
                           Expanded(
-                            child: ElevatedButton(
+                            child: OutlinedButton(
                               onPressed: _isSaving ? null : _saveProfile,
                               child: _isSaving
                                   ? const SizedBox(
@@ -322,17 +320,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ],
                       ),
                     ],
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
+      ),
     );
   }
 
   Widget _buildInfoRow(String label, String value, IconData icon) {
     return Row(
       children: [
-        Icon(icon, size: 20, color: Colors.grey[600]),
+        Icon(icon, size: 20, color: AppColors.textTertiary),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -342,7 +341,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 label,
                 style: TextStyle(
                   fontSize: 12,
-                  color: Colors.grey[600],
+                  color: AppColors.textTertiary,
                 ),
               ),
               const SizedBox(height: 4),

@@ -1,6 +1,16 @@
 enum DueType { receivable, payable }
 enum DueStatus { open, partiallyPaid, paid }
 
+/// Whether a due amount has been received (receivables) or paid (payables).
+/// Stored in DB as 'received' or 'not_received'.
+String dueReceivedStatusToJson(bool isReceived) =>
+    isReceived ? 'received' : 'not_received';
+
+bool dueReceivedStatusFromJson(dynamic value) {
+  if (value == null) return false;
+  return value.toString() == 'received';
+}
+
 class Due {
   final String? id;
   final DateTime date;
@@ -8,11 +18,15 @@ class Due {
   final String branchId;
   final String party;
   final double amount;
-  final DateTime dueDate;
   final DueType type;
-  final DueStatus status;
+  /// Whether the due has been received (receivables) or paid (payables).
+  /// Null treated as not received for backward compatibility.
+  final bool isReceived;
   final String? remarks;
   final DateTime? createdAt;
+  final String? lastEditedEmail;
+  /// Email of user who last changed status (Received/Paid). Set only when status is updated.
+  final String? statusLastEditedEmail;
 
   Due({
     this.id,
@@ -21,11 +35,12 @@ class Due {
     required this.branchId,
     required this.party,
     required this.amount,
-    required this.dueDate,
     required this.type,
-    required this.status,
+    this.isReceived = false,
     this.remarks,
     this.createdAt,
+    this.lastEditedEmail,
+    this.statusLastEditedEmail,
   });
 
   Map<String, dynamic> toJson() {
@@ -36,15 +51,12 @@ class Due {
       'branch_id': branchId,
       'party': party,
       'amount': amount,
-      'due_date': dueDate.toIso8601String().split('T')[0],
       'type': type == DueType.receivable ? 'receivable' : 'payable',
-      'status': status == DueStatus.open
-          ? 'open'
-          : status == DueStatus.partiallyPaid
-              ? 'partially_paid'
-              : 'paid',
+      'status': dueReceivedStatusToJson(isReceived),
       'remarks': remarks,
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+      if (lastEditedEmail != null) 'last_edited_email': lastEditedEmail,
+      if (statusLastEditedEmail != null) 'status_last_edited_email': statusLastEditedEmail,
     };
   }
 
@@ -56,19 +68,16 @@ class Due {
       branchId: json['branch_id']?.toString() ?? '',
       party: json['party'] ?? '',
       amount: (json['amount'] as num).toDouble(),
-      dueDate: DateTime.parse(json['due_date']),
       type: json['type'] == 'receivable'
           ? DueType.receivable
           : DueType.payable,
-      status: json['status'] == 'open'
-          ? DueStatus.open
-          : json['status'] == 'partially_paid'
-              ? DueStatus.partiallyPaid
-              : DueStatus.paid,
+      isReceived: dueReceivedStatusFromJson(json['status']),
       remarks: json['remarks'],
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'])
           : null,
+      lastEditedEmail: json['last_edited_email']?.toString(),
+      statusLastEditedEmail: json['status_last_edited_email']?.toString(),
     );
   }
 }

@@ -1,4 +1,4 @@
-enum UserRole { owner, manager, staff }
+enum UserRole { businessOwner, businessOwnerReadOnly, owner, ownerReadOnly, manager, staff }
 
 class User {
   final String id;
@@ -18,12 +18,20 @@ class User {
   });
 
   Map<String, dynamic> toJson() {
+    String? roleToDbString(UserRole? role) {
+      if (role == null) return null;
+      final camelCase = role.toString().split('.').last;
+      return camelCase.replaceAllMapped(
+        RegExp(r'([A-Z])'),
+        (match) => '_${match.group(1)!.toLowerCase()}',
+      );
+    }
     return {
       'id': id,
       'name': name,
       'phone': phone,
       'email': email,
-      'role': role?.toString().split('.').last,
+      if (role != null) 'role': roleToDbString(role),
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
     };
   }
@@ -34,16 +42,31 @@ class User {
       name: json['name'] ?? '',
       phone: json['phone'],
       email: json['email'],
-      role: json['role'] != null
-          ? UserRole.values.firstWhere(
-              (e) => e.toString().split('.').last == json['role'],
-              orElse: () => UserRole.staff,
-            )
-          : null,
+      role: _roleFromJson(json['role']?.toString()),
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'])
           : null,
     );
+  }
+
+  static UserRole? _roleFromJson(String? roleStr) {
+    if (roleStr == null || roleStr.isEmpty) return null;
+    // Convert snake_case to camelCase
+    String camelCase = roleStr
+        .split('_')
+        .map((word) => word.isEmpty
+            ? word
+            : word[0].toUpperCase() + word.substring(1).toLowerCase())
+        .join();
+    if (camelCase.isEmpty) return null;
+    camelCase = camelCase[0].toLowerCase() + camelCase.substring(1);
+    try {
+      return UserRole.values.firstWhere(
+        (e) => e.toString().split('.').last == camelCase,
+      );
+    } catch (_) {
+      return UserRole.staff;
+    }
   }
 }
 

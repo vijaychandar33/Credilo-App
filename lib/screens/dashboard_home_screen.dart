@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import '../models/branch.dart';
 import '../models/due.dart';
-import '../models/user.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import 'owner_dashboard_screen.dart';
-import 'user_management_screen.dart';
 import 'home_screen.dart';
 import 'add_branch_screen.dart';
-import 'login_screen.dart';
-import 'profile_screen.dart';
+import 'settings_screen.dart';
+import 'supplier_management_screen.dart';
+import '../utils/app_colors.dart';
+import '../utils/currency_formatter.dart';
 
 class DashboardHomeScreen extends StatefulWidget {
   const DashboardHomeScreen({super.key});
@@ -18,17 +18,63 @@ class DashboardHomeScreen extends StatefulWidget {
   State<DashboardHomeScreen> createState() => _DashboardHomeScreenState();
 }
 
-class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
+class _DashboardHomeScreenState extends State<DashboardHomeScreen> with WidgetsBindingObserver {
   final AuthService _authService = AuthService();
   final DatabaseService _dbService = DatabaseService();
   Map<String, dynamic>? _todayStats;
   bool _isLoading = true;
+  DateTime? _lastRefreshTime;
+  bool _hasLoadedOnce = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _ensureBranchData();
     _loadDashboardData();
+    _hasLoadedOnce = true;
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Refresh data when app comes back to foreground
+      _refreshIfNeeded();
+    }
+  }
+
+  void _refreshIfNeeded() {
+    // Only refresh if it's been more than 1 second since last refresh
+    final now = DateTime.now();
+    if (_lastRefreshTime == null || 
+        now.difference(_lastRefreshTime!).inSeconds > 1) {
+      _lastRefreshTime = now;
+      if (mounted) {
+        _loadDashboardData();
+      }
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Refresh when navigating back to this screen (only after initial load)
+    if (_hasLoadedOnce) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          final route = ModalRoute.of(context);
+          if (route != null && route.isCurrent) {
+            _refreshIfNeeded();
+          }
+        }
+      });
+    }
   }
 
   Future<void> _ensureBranchData() async {
@@ -47,7 +93,13 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
     });
 
     try {
-      final branches = _authService.userBranches;
+      var branches = _authService.userBranches;
+      // If we have a logged-in user but branches are not loaded (e.g. app started offline),
+      // try to refresh branches once before showing empty state.
+      if (branches.isEmpty && _authService.currentUser != null) {
+        await _authService.refreshBranches();
+        branches = _authService.userBranches;
+      }
       if (branches.isEmpty) {
         setState(() {
           _isLoading = false;
@@ -62,6 +114,9 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
       double totalCardSales = 0.0;
       double totalOnlineSales = 0.0;
       double totalQrPayments = 0.0;
+      // Overview for today:
+      // - totalReceivables: only RECEIVED receivables (counted in sales)
+      // - totalPayables: only PAID payables (counted in expenses)
       double totalReceivables = 0.0;
       double totalPayables = 0.0;
       double totalCashClosing = 0.0;
@@ -69,8 +124,15 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
 
       for (var branch in branches) {
         final cashExpenses = await _dbService.getCashExpenses(today, branch.id);
-        final branchExpenses = cashExpenses.fold(0.0, (sum, e) => sum + e.amount);
-        totalExpenses += branchExpenses;
+        final branchCashExpenses = cashExpenses.fold(0.0, (sum, e) => sum + e.amount);
+        
+        final onlineExpenses = await _dbService.getOnlineExpenses(today, branch.id);
+        final branchOnlineExpenses = onlineExpenses.fold(0.0, (sum, e) => sum + e.amount);
+        
+        final creditExpenses = await _dbService.getCreditExpenses(today, branch.id);
+        final branchCreditExpenses = creditExpenses.fold(0.0, (sum, e) => sum + e.amount);
+        
+        totalExpenses += branchCashExpenses + branchOnlineExpenses + branchCreditExpenses;
 
         final cardSales = await _dbService.getCardSales(today, branch.id);
         totalCardSales += cardSales.fold(0.0, (sum, s) => sum + s.amount);
@@ -78,16 +140,21 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
         final onlineSales = await _dbService.getOnlineSales(today, branch.id);
         totalOnlineSales += onlineSales.fold(0.0, (sum, s) => sum + s.net);
 
-        final qrPayments = await _dbService.getQrPayments(today, branch.id);
-        totalQrPayments += qrPayments.fold(0.0, (sum, p) => sum + p.amount);
+        // Use stored calculated total instead of calculating on the fly
+        final qrTotal = await _dbService.getQrPaymentCalculatedTotal(today, branch.id);
+        totalQrPayments += qrTotal;
 
         final dues = await _dbService.getDues(today, branch.id);
-        totalReceivables += dues
-            .where((d) => d.type == DueType.receivable)
+        final branchReceivablesReceived = dues
+            .where((d) => d.type == DueType.receivable && d.isReceived)
             .fold(0.0, (sum, d) => sum + d.amount);
-        totalPayables += dues
-            .where((d) => d.type == DueType.payable)
+        final branchPayablesPaid = dues
+            .where((d) => d.type == DueType.payable && d.isReceived)
             .fold(0.0, (sum, d) => sum + d.amount);
+        totalReceivables += branchReceivablesReceived;
+        totalPayables += branchPayablesPaid;
+        // Paid payables should also be counted as expenses for today
+        totalExpenses += branchPayablesPaid;
 
         // Calculate cash sales for this branch: (Cash in Hand - Opening Balance) + Total Cash Expenses
         final cashCounts = await _dbService.getCashCounts(today, branch.id);
@@ -99,7 +166,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
         final opening = previousClosing?.nextOpening ?? 0.0;
         
         // Calculate: (Cash in Hand - Opening Balance) + Total Cash Expenses
-        final branchCashSales = (countedCash - opening) + branchExpenses;
+        final branchCashSales = (countedCash - opening) + branchCashExpenses;
         totalCashSales += branchCashSales;
 
         final cashClosing = await _dbService.getCashClosing(today, branch.id);
@@ -136,16 +203,21 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
   @override
   Widget build(BuildContext context) {
     final branches = _authService.userBranches;
-    final isOwner = _authService.canManageUsers();
+    final isBusinessOwner = _authService.canManageUsers();
+    final isBranchOwner = _authService.isBranchOwner();
+    final isBusinessOwnerOrReadOnly = _authService.isBusinessOwnerOrReadOnly();
+    
+    // Show owner dashboard icon if user is a business owner OR branch owner
+    final canAccessOwnerDashboard = isBusinessOwner || isBranchOwner;
     
     // Debug info
-    debugPrint('Dashboard - Branches count: ${branches.length}, IsOwner: $isOwner, CurrentRole: ${_authService.currentRole}');
+    debugPrint('Dashboard - Branches count: ${branches.length}, IsBusinessOwner: $isBusinessOwner, IsBranchOwner: $isBranchOwner, CurrentRole: ${_authService.currentRole}');
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Dashboard'),
         actions: [
-          if (isOwner)
+          if (canAccessOwnerDashboard)
             IconButton(
               icon: const Icon(Icons.analytics),
               onPressed: () {
@@ -158,85 +230,64 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
               },
               tooltip: 'Analytics Dashboard',
             ),
-          PopupMenuButton(
-            icon: const Icon(Icons.more_vert),
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                child: const Row(
-                  children: [
-                    Icon(Icons.person, size: 20),
-                    SizedBox(width: 8),
-                    Text('Profile'),
-                  ],
+          // Show supplier management for business owners (including read-only)
+          if (isBusinessOwnerOrReadOnly)
+            IconButton(
+              icon: const Icon(Icons.store_mall_directory),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SupplierManagementScreen(),
+                  ),
+                );
+              },
+              tooltip: 'Suppliers',
+            ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const SettingsScreen(),
                 ),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const ProfileScreen(),
-                    ),
-                  );
-                },
-              ),
-              PopupMenuItem(
-                child: const Row(
-                  children: [
-                    Icon(Icons.logout, size: 20, color: Colors.red),
-                    SizedBox(width: 8),
-                    Text('Logout', style: TextStyle(color: Colors.red)),
-                  ],
-                ),
-                onTap: () async {
-                  await _authService.logout();
-                  if (context.mounted) {
-                    Navigator.of(context).pushReplacement(
-                      MaterialPageRoute(
-                        builder: (context) => const LoginScreen(),
-                      ),
-                    );
-                  }
-                },
-              ),
-            ],
+              );
+            },
+            tooltip: 'Settings',
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _loadDashboardData,
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Branch Management - Show for all users, but with different options
-                    _buildBranchManagement(branches, isOwner),
-                    const SizedBox(height: 16),
-
-                    // People & Access - Show for owners
-                    if (isOwner) ...[
-                      _buildPeopleAccess(),
+      body: SafeArea(
+        top: false,
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : RefreshIndicator(
+                onRefresh: _loadDashboardData,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Branch Management - Show for all users, but with different options
+                      // Only full business owners can add branches (not read-only)
+                      _buildBranchManagement(branches, isBusinessOwner),
                       const SizedBox(height: 16),
-                    ] else ...[
-                      // Show limited access info for non-owners
-                      _buildAccessInfo(),
+
+                      // Quick Stats
+                      _buildQuickStats(),
                       const SizedBox(height: 16),
-                    ],
 
-                    // Quick Stats
-                    _buildQuickStats(),
-                    const SizedBox(height: 16),
-
-                    // Today's Summary
-                    if (_todayStats != null) ...[
-                      _buildTodaySummary(),
+                      // Today's Summary
+                      if (_todayStats != null) ...[
+                        _buildTodaySummary(),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
-            ),
+      ),
     );
   }
 
@@ -248,16 +299,16 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
             'Total Sales',
             _todayStats?['totalSales'] ?? 0.0,
             Icons.trending_up,
-            Colors.green,
+            AppColors.success,
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: _buildStatCard(
-            'Total Cash Expenses',
+            'Total Expenses',
             _todayStats?['totalExpenses'] ?? 0.0,
             Icons.trending_down,
-            Colors.red,
+            AppColors.error,
           ),
         ),
       ],
@@ -276,7 +327,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
               children: [
                 Icon(icon, color: color, size: 24),
                 Text(
-                  '₹${value.toStringAsFixed(0)}',
+                  CurrencyFormatter.format(value, decimalDigits: 0),
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
@@ -290,7 +341,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
               title,
               style: TextStyle(
                 fontSize: 12,
-                color: Colors.grey[400],
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
           ],
@@ -314,14 +365,14 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            _buildSummaryRow('Sales', _todayStats!['totalSales'] ?? 0.0, Colors.green),
-            _buildSummaryRow('Cash Expenses', _todayStats!['totalExpenses'] ?? 0.0, Colors.red),
+            _buildSummaryRow('Sales', _todayStats!['totalSales'] ?? 0.0, AppColors.success),
+            _buildSummaryRow('Expenses', _todayStats!['totalExpenses'] ?? 0.0, AppColors.error),
             const Divider(),
             _buildSummaryRow('Net Profit', _todayStats!['netProfit'] ?? 0.0, 
-                (_todayStats!['netProfit'] ?? 0.0) >= 0 ? Colors.green : Colors.red),
+                (_todayStats!['netProfit'] ?? 0.0) >= 0 ? AppColors.success : AppColors.error),
             const SizedBox(height: 8),
-            _buildSummaryRow('Receivables', _todayStats!['totalReceivables'] ?? 0.0, Colors.orange),
-            _buildSummaryRow('Payables', _todayStats!['totalPayables'] ?? 0.0, Colors.purple),
+            _buildSummaryRow('Receivables', _todayStats!['totalReceivables'] ?? 0.0, AppColors.warning),
+            _buildSummaryRow('Payables', _todayStats!['totalPayables'] ?? 0.0, AppColors.primary),
           ],
         ),
       ),
@@ -339,7 +390,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
             style: const TextStyle(fontSize: 14),
           ),
           Text(
-            '₹${value.toStringAsFixed(2)}',
+            CurrencyFormatter.format(value),
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
@@ -366,10 +417,10 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: Colors.blue.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(Icons.business, color: Colors.blue, size: 24),
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.business, color: AppColors.primary, size: 24),
                     ),
                     const SizedBox(width: 12),
                     const Text(
@@ -405,12 +456,12 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
             ),
             const SizedBox(height: 12),
             if (branches.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(16),
+              Padding(
+                padding: const EdgeInsets.all(16),
                 child: Center(
                   child: Text(
                     'No branches yet. Add your first branch!',
-                    style: TextStyle(color: Colors.grey),
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.8)),
                   ),
                 ),
               )
@@ -419,19 +470,23 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
                   margin: const EdgeInsets.only(bottom: 8),
                   color: Theme.of(context).colorScheme.surfaceContainerHighest,
                   child: InkWell(
-                    onTap: () {
+                    onTap: () async {
                       // Set the selected branch and navigate to daily operations
                       _authService.setCurrentBranch(branch);
-                      Navigator.push(
+                      await Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (context) => const FinancialEntryScreen(),
                         ),
                       );
+                      // Refresh dashboard data when returning
+                      if (mounted) {
+                        _loadDashboardData();
+                      }
                     },
                     borderRadius: BorderRadius.circular(12),
                     child: ListTile(
-                      leading: const Icon(Icons.store, color: Colors.blue),
+                      leading: const Icon(Icons.store, color: AppColors.primary),
                       title: Text(
                         branch.name,
                         style: const TextStyle(fontWeight: FontWeight.w600),
@@ -444,8 +499,8 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
                               color: branch.status == BranchStatus.active
-                                  ? Colors.green.withValues(alpha: 0.2)
-                                  : Colors.grey.withValues(alpha: 0.2),
+                                  ? AppColors.success.withValues(alpha: 0.2)
+                                  : Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
@@ -454,13 +509,13 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
                                 fontSize: 10,
                                 fontWeight: FontWeight.w600,
                                 color: branch.status == BranchStatus.active
-                                    ? Colors.green
-                                    : Colors.grey,
+                                    ? AppColors.success
+                                    : Theme.of(context).colorScheme.onSurfaceVariant,
                               ),
                             ),
                           ),
                           const SizedBox(width: 8),
-                          const Icon(Icons.chevron_right, color: Colors.grey),
+                          Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.onSurfaceVariant),
                         ],
                       ),
                     ),
@@ -472,149 +527,5 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
     );
   }
 
-  Widget _buildPeopleAccess() {
-    return Card(
-      child: InkWell(
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const UserManagementScreen(),
-            ),
-          );
-        },
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.purple.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(Icons.people, color: Colors.purple, size: 24),
-                      ),
-                      const SizedBox(width: 12),
-                      const Text(
-                        'People & Access',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const Icon(Icons.chevron_right, color: Colors.grey),
-                ],
-              ),
-              const SizedBox(height: 12),
-              const Row(
-                children: [
-                  Icon(Icons.security, size: 18, color: Colors.grey),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Manage Users & Permissions',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          'Add users, assign roles, and control branch access',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAccessInfo() {
-    final role = _authService.currentRole;
-    final branch = _authService.currentBranch;
-    
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.info_outline, color: Colors.orange, size: 24),
-                ),
-                const SizedBox(width: 12),
-                const Text(
-                  'Your Access',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            if (branch != null)
-              ListTile(
-                leading: const Icon(Icons.store, color: Colors.blue),
-                title: Text('Branch: ${branch.name}'),
-                subtitle: Text('Location: ${branch.location}'),
-              ),
-            const SizedBox(height: 8),
-            ListTile(
-              leading: Icon(
-                role == UserRole.owner
-                    ? Icons.admin_panel_settings
-                    : role == UserRole.manager
-                        ? Icons.manage_accounts
-                        : Icons.person,
-                color: role == UserRole.owner
-                    ? Colors.blue
-                    : role == UserRole.manager
-                        ? Colors.orange
-                        : Colors.grey,
-              ),
-              title: Text('Role: ${role?.toString().split('.').last.toUpperCase() ?? 'N/A'}'),
-              subtitle: Text(
-                role == UserRole.owner
-                    ? 'Full access: Edit any date, manage users & branches'
-                    : role == UserRole.manager
-                        ? 'You can edit today and yesterday\'s data'
-                        : 'You can only edit today\'s data',
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 

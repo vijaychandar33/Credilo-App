@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
+import '../utils/app_colors.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../models/cash_expense.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
+import '../utils/currency_formatter.dart';
+import '../utils/delete_confirmation_dialog.dart';
+import '../utils/error_message_helper.dart';
+import '../utils/unsaved_changes_dialog.dart';
 
 class CashExpenseScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -20,7 +25,9 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
   final AuthService _authService = AuthService();
   bool _isSaving = false;
   bool _isLoading = false;
-  List<String> _existingExpenseIds = []; // Track existing expense IDs
+  bool _showValidationErrors = false;
+  bool _isDirty = false;
+  final List<String> _existingExpenseIds = []; // Track existing expense IDs
   final List<String> _categories = [
     'Supplies',
     'Wages',
@@ -53,6 +60,7 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
       
       if (expenses.isNotEmpty) {
         setState(() {
+          _isDirty = false;
           _expenses.clear();
           _existingExpenseIds.clear();
           for (var expense in expenses) {
@@ -64,10 +72,11 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
             if (expense.note != null) {
               row.noteController.text = expense.note!;
             }
-            _expenses.add(row);
             if (expense.id != null) {
+              row.id = expense.id!;
               _existingExpenseIds.add(expense.id!);
             }
+            _expenses.add(row);
           }
         });
       } else {
@@ -79,18 +88,43 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
     } finally {
       setState(() {
         _isLoading = false;
+        _isDirty = false;
       });
     }
   }
 
   void _addNewRow() {
     setState(() {
+      _isDirty = true;
       _expenses.add(CashExpenseRow());
     });
   }
 
-  void _removeRow(int index) {
+  Future<void> _removeRow(int index) async {
+    final expense = _expenses[index];
+    final hasValue = expense.amount != null && expense.amount! > 0;
+    
+    if (hasValue) {
+      final confirmed = await showDeleteConfirmationDialog(
+        context,
+        title: 'Delete Expense',
+        message: 'Are you sure you want to delete this expense?',
+      );
+      if (!confirmed) return;
+    }
+    
+    // If this row was saved to database, delete it
+    if (expense.id != null) {
+      try {
+        await _dbService.deleteCashExpense(expense.id!);
+        _existingExpenseIds.remove(expense.id!);
+      } catch (e) {
+        debugPrint('Error deleting expense from database: $e');
+      }
+    }
+    
     setState(() {
+      _isDirty = true;
       _expenses.removeAt(index);
       if (_expenses.isEmpty) {
         _addNewRow();
@@ -112,6 +146,31 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
         const SnackBar(content: Text('Please add at least one expense with amount')),
       );
       return;
+    }
+
+    bool hasValidationErrors = false;
+    for (var expenseRow in _expenses) {
+      if (expenseRow.amount != null && expenseRow.amount! > 0) {
+        final missingItem = expenseRow.itemController.text.trim().isEmpty;
+        final missingCategory = expenseRow.category == null;
+        if (missingItem || missingCategory) {
+          hasValidationErrors = true;
+        }
+      }
+    }
+
+    if (hasValidationErrors) {
+      setState(() {
+        _showValidationErrors = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Fill all required fields to save')),
+      );
+      return;
+    } else if (_showValidationErrors) {
+      setState(() {
+        _showValidationErrors = false;
+      });
     }
 
     final user = _authService.currentUser;
@@ -168,6 +227,7 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
       await _loadData();
 
       if (mounted) {
+        setState(() => _isDirty = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Expenses saved successfully')),
         );
@@ -175,8 +235,9 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
       }
     } catch (e) {
       if (mounted) {
+        final errorMessage = ErrorMessageHelper.getUserFriendlyError(e);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving expenses: $e')),
+          SnackBar(content: Text('Unable to save expenses. $errorMessage')),
         );
       }
     } finally {
@@ -199,7 +260,14 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
       );
     }
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_isDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final discard = await showUnsavedChangesDialog(context);
+        if (discard && context.mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text('Cash Daily Expense - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
       ),
@@ -227,67 +295,76 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
               },
             ),
           ),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.1),
-                  blurRadius: 4,
-                  offset: const Offset(0, -2),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Total Expenses:',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      '₹${_getTotal().toStringAsFixed(2)}',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: (_canSave() && !_isSaving) ? _save : null,
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                    child: _isSaving
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Save', style: TextStyle(fontSize: 16)),
+          SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.overlay,
+                    blurRadius: 4,
+                    offset: const Offset(0, -2),
                   ),
-                ),
-              ],
+                ],
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Total Expenses:',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        CurrencyFormatter.format(_getTotal()),
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: (_canSave() && !_isSaving) ? _save : null,
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: _isSaving
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('Save', style: TextStyle(fontSize: 16)),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
       ),
+    ),
     );
   }
 
   Widget _buildExpenseRow(int index) {
     final expense = _expenses[index];
+    final requiresFields = expense.amount != null && expense.amount! > 0;
+    final showItemError = _showValidationErrors &&
+        requiresFields &&
+        expense.itemController.text.trim().isEmpty;
+    final showCategoryError = _showValidationErrors && requiresFields && expense.category == null;
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -300,15 +377,17 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
                 Expanded(
                   child: TextField(
                     controller: expense.itemController,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Item / Description',
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
                       isDense: true,
+                      errorText: showItemError ? 'Enter item' : null,
                     ),
+                    onChanged: (_) => setState(() => _isDirty = true),
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  icon: const Icon(Icons.delete_outline, color: AppColors.error),
                   onPressed: () => _removeRow(index),
                 ),
               ],
@@ -320,16 +399,18 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
                   flex: 2,
                   child: DropdownButtonFormField<String>(
                     initialValue: expense.category,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Category',
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
                       isDense: true,
+                      errorText: showCategoryError ? 'Select category' : null,
                     ),
                     items: _categories.map((cat) {
                       return DropdownMenuItem(value: cat, child: Text(cat));
                     }).toList(),
                     onChanged: (value) {
                       setState(() {
+                        _isDirty = true;
                         expense.category = value;
                       });
                     },
@@ -352,12 +433,12 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
                     ],
                     onChanged: (value) {
                       setState(() {
+                        _isDirty = true;
                         expense.amount = value.isEmpty
                             ? null
                             : double.tryParse(value);
                       });
                     },
-                    autofocus: index == _expenses.length - 1 && expense.amount == null,
                   ),
                 ),
               ],
@@ -371,6 +452,7 @@ class _CashExpenseScreenState extends State<CashExpenseScreen> {
                 isDense: true,
               ),
               maxLines: 2,
+              onChanged: (_) => setState(() => _isDirty = true),
             ),
           ],
         ),
@@ -385,6 +467,7 @@ class CashExpenseRow {
   final TextEditingController noteController = TextEditingController();
   String? category;
   double? amount;
+  String? id; // Track if this row is saved in database
 
   CashExpenseRow();
 

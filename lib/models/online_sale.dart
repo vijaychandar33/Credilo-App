@@ -3,26 +3,28 @@ class OnlineSale {
   final DateTime date;
   final String userId;
   final String branchId;
+  final String? platformId; // UUID; rename-safe link to online_sales_platforms
   final String platform;
   final double gross;
   final double? commission;
   final double net;
-  final DateTime? settlementDate;
   final String? notes;
   final DateTime? createdAt;
+   final String? lastEditedEmail;
 
   OnlineSale({
     this.id,
     required this.date,
     required this.userId,
     required this.branchId,
+    this.platformId,
     required this.platform,
     required this.gross,
     this.commission,
     required this.net,
-    this.settlementDate,
     this.notes,
     this.createdAt,
+    this.lastEditedEmail,
   });
 
   Map<String, dynamic> toJson() {
@@ -31,13 +33,14 @@ class OnlineSale {
       'date': date.toIso8601String().split('T')[0],
       'user_id': userId,
       'branch_id': branchId,
+      if (platformId != null) 'platform_id': platformId,
       'platform': platform,
       'gross': gross,
       'commission': commission,
       'net': net,
-      'settlement_date': settlementDate?.toIso8601String().split('T')[0],
       'notes': notes,
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+      if (lastEditedEmail != null) 'last_edited_email': lastEditedEmail,
     };
   }
 
@@ -47,19 +50,18 @@ class OnlineSale {
       date: DateTime.parse(json['date']),
       userId: json['user_id']?.toString() ?? '',
       branchId: json['branch_id']?.toString() ?? '',
+      platformId: json['platform_id']?.toString(),
       platform: json['platform'] ?? '',
       gross: (json['gross'] as num).toDouble(),
       commission: json['commission'] != null
           ? (json['commission'] as num).toDouble()
           : null,
       net: (json['net'] as num).toDouble(),
-      settlementDate: json['settlement_date'] != null
-          ? DateTime.parse(json['settlement_date'])
-          : null,
       notes: json['notes'],
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'])
           : null,
+      lastEditedEmail: json['last_edited_email']?.toString(),
     );
   }
 }

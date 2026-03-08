@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
+import '../utils/app_colors.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../models/online_sale.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
+import '../utils/currency_formatter.dart';
+import '../utils/delete_confirmation_dialog.dart';
+import '../utils/error_message_helper.dart';
+import '../utils/unsaved_changes_dialog.dart';
+import 'online_sales_platform_management_screen.dart';
 
 class OnlineSalesScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -20,13 +26,11 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
   final AuthService _authService = AuthService();
   bool _isSaving = false;
   bool _isLoading = false;
-  List<String> _existingSaleIds = []; // Track existing sale IDs
-  final List<String> _platforms = [
-    'Swiggy',
-    'Zomato',
-    'Own Delivery',
-    'Others',
-  ];
+  bool _showValidationErrors = false;
+  bool _isDirty = false;
+  final List<String> _existingSaleIds = []; // Track existing sale IDs
+  List<String> _platforms = []; // Names for dropdown: configured + "Others"
+  Map<String, String> _platformIdByName = {}; // name -> id for saving with platform_id
 
   @override
   void initState() {
@@ -44,66 +48,120 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
       if (branch == null) {
         setState(() {
           _isLoading = false;
+          _platforms = ['Others'];
+          _platformIdByName = {};
+          _sales.clear();
+          _sales.add(OnlineSaleRow());
         });
-        _addNewSale();
         return;
       }
 
       final sales = await _dbService.getOnlineSales(widget.selectedDate, branch.id);
-      
-      if (sales.isNotEmpty) {
-        setState(() {
-          _sales.clear();
-          _existingSaleIds.clear();
-          
-          for (var sale in sales) {
-            final row = OnlineSaleRow();
-            row.platform = sale.platform;
-            row.grossController.text = sale.gross.toStringAsFixed(2);
-            row.gross = sale.gross;
-            if (sale.commission != null) {
-              row.commissionController.text = sale.commission!.toStringAsFixed(2);
-              row.commission = sale.commission;
-            }
-            row.netController.text = sale.net.toStringAsFixed(2);
-            if (sale.settlementDate != null) {
-              row.settlementDate = sale.settlementDate;
-              row.settlementDateController.text = DateFormat('d MMM yyyy').format(sale.settlementDate!);
-            }
-            // Note: ordersCount is not stored in the model, so we skip it
-            if (sale.notes != null) {
-              row.notesController.text = sale.notes!;
-            }
-            // Settlement status is not in the model, default to 'Pending'
-            row._calculateNet();
-            
-            _sales.add(row);
-            if (sale.id != null) {
-              _existingSaleIds.add(sale.id!);
-            }
+      final platformList = await _dbService.getOnlineSalesPlatforms(branch.id);
+      final platformIdByName = {
+        for (var p in platformList) if (p.id != null) p.name: p.id!,
+      };
+      final platformIdToName = {
+        for (var p in platformList) if (p.id != null) p.id!: p.name,
+      };
+      final providerNames = platformList.map((p) => p.name).where((n) => n.toLowerCase() != 'others').toList();
+      providerNames.add('Others');
+
+      setState(() {
+        _isDirty = false;
+        _sales.clear();
+        _existingSaleIds.clear();
+        _platforms = List.from(providerNames);
+        _platformIdByName = platformIdByName;
+        for (var sale in sales) {
+          final row = OnlineSaleRow();
+          final platformName = (sale.platformId != null && platformIdToName.containsKey(sale.platformId))
+              ? platformIdToName[sale.platformId]!
+              : sale.platform;
+          row.platform = platformName;
+          row.isPlatformLocked = true;
+          row.platformLabel = platformName;
+          row.grossController.text = sale.gross.toStringAsFixed(2);
+          row.gross = sale.gross;
+          if (sale.commission != null) {
+            row.commissionController.text = sale.commission!.toStringAsFixed(2);
+            row.commission = sale.commission;
           }
-        });
-      } else {
-        _addNewSale();
-      }
+          row.netController.text = sale.net.toStringAsFixed(2);
+          if (sale.notes != null) {
+            row.notesController.text = sale.notes!;
+          }
+          row._calculateNet();
+          if (sale.id != null) {
+            row.id = sale.id!;
+            _existingSaleIds.add(sale.id!);
+          }
+          _sales.add(row);
+        }
+
+        // Add one empty row per configured platform that has no entry yet (like Card Sales)
+        for (var p in platformList) {
+          final hasEntry = _sales.any((row) => row.platform == p.name);
+          if (hasEntry) continue;
+          final row = OnlineSaleRow()
+            ..platform = p.name
+            ..isPlatformLocked = true
+            ..platformLabel = p.name;
+          _sales.add(row);
+        }
+
+        if (_sales.isEmpty) {
+          _sales.add(OnlineSaleRow());
+        }
+      });
     } catch (e) {
       debugPrint('Error loading online sales: $e');
-      _addNewSale();
+      setState(() {
+        _platforms = _platforms.isEmpty ? ['Others'] : _platforms;
+        _platformIdByName = {};
+        _sales.clear();
+        _sales.add(OnlineSaleRow());
+      });
     } finally {
       setState(() {
         _isLoading = false;
+        _isDirty = false;
       });
     }
   }
 
   void _addNewSale() {
     setState(() {
-      _sales.add(OnlineSaleRow());
+      _isDirty = true;
+      _sales.add(OnlineSaleRow()); // unlocked row: user picks platform from dropdown (incl. Others)
     });
   }
 
-  void _removeSale(int index) {
+  Future<void> _removeSale(int index) async {
+    final sale = _sales[index];
+    final hasValue = sale.gross != null && sale.gross! > 0;
+    
+    if (hasValue) {
+      final confirmed = await showDeleteConfirmationDialog(
+        context,
+        title: 'Delete Sale',
+        message: 'Are you sure you want to delete this sale?',
+      );
+      if (!confirmed) return;
+    }
+    
+    // If this row was saved to database, delete it
+    if (sale.id != null) {
+      try {
+        await _dbService.deleteOnlineSale(sale.id!);
+        _existingSaleIds.remove(sale.id!);
+      } catch (e) {
+        debugPrint('Error deleting sale from database: $e');
+      }
+    }
+    
     setState(() {
+      _isDirty = true;
       _sales.removeAt(index);
       if (_sales.isEmpty) {
         _addNewSale();
@@ -134,6 +192,30 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
       return;
     }
 
+    bool hasValidationErrors = false;
+    for (var saleRow in _sales) {
+      if (saleRow.gross != null && saleRow.gross! > 0) {
+        final missingPlatform = saleRow.platform == null || saleRow.platform!.isEmpty;
+        if (missingPlatform) {
+          hasValidationErrors = true;
+        }
+      }
+    }
+
+    if (hasValidationErrors) {
+      setState(() {
+        _showValidationErrors = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Fill all required fields to save')),
+      );
+      return;
+    } else if (_showValidationErrors) {
+      setState(() {
+        _showValidationErrors = false;
+      });
+    }
+
     setState(() {
       _isSaving = true;
     });
@@ -150,15 +232,16 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
             continue; // Skip if platform is not selected
           }
 
+          final platformId = _platformIdByName[saleRow.platform!];
           final sale = OnlineSale(
             date: widget.selectedDate,
             userId: user.id,
             branchId: branch.id,
+            platformId: platformId,
             platform: saleRow.platform!,
             gross: saleRow.gross!,
             commission: saleRow.commission,
             net: double.parse(saleRow.netController.text),
-            settlementDate: saleRow.settlementDate,
             notes: saleRow.notesController.text.trim().isEmpty
                 ? null
                 : saleRow.notesController.text.trim(),
@@ -172,6 +255,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
       await _loadData();
 
       if (mounted) {
+        setState(() => _isDirty = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Online sales saved successfully')),
         );
@@ -180,7 +264,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving online sales: $e')),
+          SnackBar(content: Text('Unable to save online sales. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
         );
       }
     } finally {
@@ -203,9 +287,33 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
       );
     }
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_isDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final discard = await showUnsavedChangesDialog(context);
+        if (discard && context.mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text('Online Sales - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
+        actions: [
+          if (_authService.canAccessManagementInCurrentBranch)
+            IconButton(
+              icon: const Icon(Icons.shopping_bag),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const OnlineSalesPlatformManagementScreen(),
+                  ),
+                ).then((_) {
+                  _loadData();
+                });
+              },
+              tooltip: 'Manage Platforms',
+            ),
+        ],
       ),
       body: Column(
         children: [
@@ -231,67 +339,75 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
               },
             ),
           ),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.1),
-                  blurRadius: 4,
-                  offset: const Offset(0, -2),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Total Online Sales:',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      '₹${_getTotalSales().toStringAsFixed(2)}',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _isSaving ? null : _save,
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                    child: _isSaving
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Save', style: TextStyle(fontSize: 16)),
+          SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.overlay,
+                    blurRadius: 4,
+                    offset: const Offset(0, -2),
                   ),
-                ),
-              ],
+                ],
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Total Online Sales:',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        CurrencyFormatter.format(_getTotalSales()),
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _isSaving ? null : _save,
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: _isSaving
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('Save', style: TextStyle(fontSize: 16)),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
       ),
+    ),
     );
   }
 
   Widget _buildSaleRow(int index) {
     final sale = _sales[index];
+    final requiresFields = sale.gross != null && sale.gross! > 0;
+    final showPlatformError = _showValidationErrors &&
+        requiresFields &&
+        (sale.platform == null || sale.platform!.isEmpty);
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -302,26 +418,40 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
             Row(
               children: [
                 Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: sale.platform,
-                    decoration: const InputDecoration(
-                      labelText: 'Platform',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    items: _platforms.map((platform) {
-                      return DropdownMenuItem(value: platform, child: Text(platform));
-                    }).toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        sale.platform = value;
-                      });
-                    },
-                  ),
+                  child: sale.isPlatformLocked
+                      ? InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Platform',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          child: Text(sale.platformLabel ?? sale.platform ?? 'Platform'),
+                        )
+                      : DropdownButtonFormField<String>(
+                          initialValue: sale.platform != null && sale.platform!.isNotEmpty
+                              ? sale.platform
+                              : null,
+                          decoration: InputDecoration(
+                            labelText: 'Platform',
+                            border: const OutlineInputBorder(),
+                            isDense: true,
+                            errorText: showPlatformError ? 'Select platform' : null,
+                          ),
+                          items: _platforms.map((platform) {
+                            return DropdownMenuItem(value: platform, child: Text(platform));
+                          }).toList(),
+                          onChanged: (value) {
+                            setState(() {
+                              _isDirty = true;
+                              sale.platform = value;
+                            });
+                          },
+                        ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  icon: const Icon(Icons.delete_outline, color: AppColors.error),
                   onPressed: () => _removeSale(index),
+                  tooltip: 'Delete',
                 ),
               ],
             ),
@@ -343,6 +473,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
                     ],
                     onChanged: (value) {
                       setState(() {
+                        _isDirty = true;
                         sale.gross = value.isEmpty
                             ? null
                             : double.tryParse(value);
@@ -367,6 +498,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
                     ],
                     onChanged: (value) {
                       setState(() {
+                        _isDirty = true;
                         sale.commission = value.isEmpty
                             ? null
                             : double.tryParse(value);
@@ -378,10 +510,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
+            TextField(
                     controller: sale.netController,
                     decoration: const InputDecoration(
                       labelText: 'Net Settlement',
@@ -391,70 +520,6 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
                       filled: true,
                     ),
                     readOnly: true,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: sale.ordersCountController,
-                    decoration: const InputDecoration(
-                      labelText: 'Orders Count (optional)',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: sale.settlementStatus,
-                    decoration: const InputDecoration(
-                      labelText: 'Settlement Status',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    items: ['Pending', 'Settled'].map((status) {
-                      return DropdownMenuItem(value: status, child: Text(status));
-                    }).toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        sale.settlementStatus = value;
-                      });
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextButton(
-                    onPressed: () async {
-                      final date = await showDatePicker(
-                        context: context,
-                        initialDate: sale.settlementDate ?? DateTime.now(),
-                        firstDate: DateTime(2020),
-                        lastDate: DateTime(2100),
-                      );
-                      if (date != null) {
-                        setState(() {
-                          sale.settlementDate = date;
-                          sale.settlementDateController.text =
-                              DateFormat('d MMM yyyy').format(date);
-                        });
-                      }
-                    },
-                    child: Text(
-                      sale.settlementDateController.text.isEmpty
-                          ? 'Select Settlement Date'
-                          : sale.settlementDateController.text,
-                    ),
-                  ),
-                ),
-              ],
             ),
             const SizedBox(height: 8),
             TextField(
@@ -465,6 +530,7 @@ class _OnlineSalesScreenState extends State<OnlineSalesScreen> {
                 isDense: true,
               ),
               maxLines: 2,
+              onChanged: (_) => setState(() => _isDirty = true),
             ),
           ],
         ),
@@ -477,14 +543,13 @@ class OnlineSaleRow {
   final TextEditingController grossController = TextEditingController();
   final TextEditingController commissionController = TextEditingController();
   final TextEditingController netController = TextEditingController();
-  final TextEditingController ordersCountController = TextEditingController();
-  final TextEditingController settlementDateController = TextEditingController();
   final TextEditingController notesController = TextEditingController();
   String? platform;
+  bool isPlatformLocked = false;
+  String? platformLabel;
   double? gross;
   double? commission;
-  DateTime? settlementDate;
-  String? settlementStatus = 'Pending';
+  String? id; // Track if this row is saved in database
 
   OnlineSaleRow();
 
@@ -499,8 +564,6 @@ class OnlineSaleRow {
     grossController.dispose();
     commissionController.dispose();
     netController.dispose();
-    ordersCountController.dispose();
-    settlementDateController.dispose();
     notesController.dispose();
   }
 }

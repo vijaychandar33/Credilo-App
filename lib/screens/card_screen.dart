@@ -5,6 +5,11 @@ import '../models/card_sale.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import 'card_machine_management_screen.dart';
+import '../utils/app_colors.dart';
+import '../utils/currency_formatter.dart';
+import '../utils/delete_confirmation_dialog.dart';
+import '../utils/error_message_helper.dart';
+import '../utils/unsaved_changes_dialog.dart';
 
 class CardScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -22,12 +27,27 @@ class _CardScreenState extends State<CardScreen> {
   final AuthService _authService = AuthService();
   bool _isSaving = false;
   bool _isLoading = false;
-  List<String> _existingSaleIds = []; // Track existing sale IDs
+  bool _showValidationErrors = false;
+  bool _isDirty = false;
+  final List<String> _existingSaleIds = []; // Track existing sale IDs
 
   @override
   void initState() {
     super.initState();
     _loadData();
+  }
+
+  String _machineKey(CardMachine machine) => machine.id ?? '${machine.tid}__${machine.name}';
+
+  String _machineLabel(CardMachine machine) => '${machine.name} (${machine.tid})';
+
+  CardMachine? _findMachineByKey(String? key) {
+    if (key == null) return null;
+    try {
+      return _machines.firstWhere((m) => _machineKey(m) == key);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _loadData() async {
@@ -38,10 +58,11 @@ class _CardScreenState extends State<CardScreen> {
     try {
       final branch = _authService.currentBranch;
       if (branch == null) {
-        setState(() {
-          _isLoading = false;
-        });
-        _addNewSale();
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
         return;
       }
 
@@ -51,65 +72,128 @@ class _CardScreenState extends State<CardScreen> {
       // Load sales for the date
       final sales = await _dbService.getCardSales(widget.selectedDate, branch.id);
       
+      final Map<String, CardMachine> machineMap = {
+        for (final machine in machines) _machineKey(machine): machine,
+      };
+
       setState(() {
+        _isDirty = false;
         _sales.clear();
         _existingSaleIds.clear();
-        _machines.clear();
-        
-        // Add machines from backend
-        _machines.addAll(machines);
-        
-        if (sales.isNotEmpty) {
-          for (var sale in sales) {
-            final row = CardSaleRow();
-            row.amountController.text = sale.amount.toStringAsFixed(2);
-            row.amount = sale.amount;
-            if (sale.txnCount != null) {
-              row.txnCountController.text = sale.txnCount.toString();
-            }
-            if (sale.notes != null) {
-              row.notesController.text = sale.notes!;
-            }
-            
-            // Find matching machine
-            final machine = _machines.firstWhere(
-              (m) => m.tid == sale.tid && m.name == sale.machineName,
-              orElse: () => CardMachine(name: sale.machineName, tid: sale.tid),
-            );
-            if (!_machines.contains(machine)) {
-              _machines.add(machine);
-            }
-            
-            // Set machine selection
-            row.selectedMachineId = machine.id ?? '${machine.tid}_${machine.name}';
-            
-            _sales.add(row);
-            if (sale.id != null) {
-              _existingSaleIds.add(sale.id!);
-            }
+        _machines
+          ..clear()
+          ..addAll(machines);
+
+        final Set<String> machinesWithEntries = {};
+
+        for (var sale in sales) {
+          final row = CardSaleRow();
+          row.amountController.text = sale.amount.toStringAsFixed(2);
+          row.amount = sale.amount;
+          if (sale.notes != null) {
+            row.notesController.text = sale.notes!;
           }
-        } else {
-          _addNewSale();
+
+          CardMachine? machine;
+          String? machineKey;
+          try {
+            if (sale.cardMachineId != null && sale.cardMachineId!.isNotEmpty) {
+              machine = _machines.firstWhere((m) => m.id == sale.cardMachineId);
+            } else {
+              machine = _machines.firstWhere(
+                (m) => m.tid == sale.tid && m.name == sale.machineName,
+              );
+            }
+            machineKey = _machineKey(machine);
+            machinesWithEntries.add(machineKey);
+          } catch (_) {
+            machineKey = sale.machineName == 'Others' ? 'others' : null;
+          }
+
+          if (machineKey == null) {
+            row.selectedMachineId = 'others';
+            row.isMachineLocked = true;
+            row.machineLabel = '${sale.machineName} (${sale.tid})';
+          } else if (machineKey == 'others') {
+            row.selectedMachineId = 'others';
+            row.isMachineLocked = true;
+            row.machineLabel = 'Others';
+          } else {
+            row.selectedMachineId = machineKey;
+            row.isMachineLocked = true;
+            final labelMachine = machine ?? machineMap[machineKey];
+            row.machineLabel =
+                labelMachine != null ? _machineLabel(labelMachine) : sale.machineName;
+          }
+
+          _sales.add(row);
+          if (sale.id != null) {
+            row.id = sale.id!;
+            _existingSaleIds.add(sale.id!);
+          }
+        }
+
+        for (final machine in _machines) {
+          final key = _machineKey(machine);
+          if (machinesWithEntries.contains(key)) continue;
+          if (_sales.any((row) => row.selectedMachineId == key)) continue;
+          final row = CardSaleRow()
+            ..selectedMachineId = key
+            ..isMachineLocked = true
+            ..machineLabel = _machineLabel(machine);
+          _sales.add(row);
+        }
+
+        if (_sales.isEmpty) {
+          _sales.add(CardSaleRow());
         }
       });
     } catch (e) {
       debugPrint('Error loading card sales: $e');
-      _addNewSale();
+      setState(() {
+        _sales.clear();
+        _sales.add(CardSaleRow());
+      });
     } finally {
       setState(() {
         _isLoading = false;
+        _isDirty = false;
       });
     }
   }
 
   void _addNewSale() {
     setState(() {
+      _isDirty = true;
       _sales.add(CardSaleRow());
     });
   }
 
-  void _removeSale(int index) {
+  Future<void> _removeSale(int index) async {
+    final sale = _sales[index];
+    final hasValue = sale.amount != null && sale.amount! > 0;
+    
+    if (hasValue) {
+      final confirmed = await showDeleteConfirmationDialog(
+        context,
+        title: 'Delete Sale',
+        message: 'Are you sure you want to delete this sale?',
+      );
+      if (!confirmed) return;
+    }
+    
+    // If this row was saved to database, delete it
+    if (sale.id != null) {
+      try {
+        await _dbService.deleteCardSale(sale.id!);
+        _existingSaleIds.remove(sale.id!);
+      } catch (e) {
+        debugPrint('Error deleting sale from database: $e');
+      }
+    }
+    
     setState(() {
+      _isDirty = true;
       _sales.removeAt(index);
       if (_sales.isEmpty) {
         _addNewSale();
@@ -141,6 +225,30 @@ class _CardScreenState extends State<CardScreen> {
       return;
     }
 
+    bool hasValidationErrors = false;
+    for (var saleRow in _sales) {
+      if (saleRow.amount != null && saleRow.amount! > 0) {
+        final missingMachine = saleRow.selectedMachineId == null || saleRow.selectedMachineId!.isEmpty;
+        if (missingMachine) {
+          hasValidationErrors = true;
+        }
+      }
+    }
+
+    if (hasValidationErrors) {
+      setState(() {
+        _showValidationErrors = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Fill all required fields to save')),
+      );
+      return;
+    } else if (_showValidationErrors) {
+      setState(() {
+        _showValidationErrors = false;
+      });
+    }
+
     setState(() {
       _isSaving = true;
     });
@@ -155,46 +263,23 @@ class _CardScreenState extends State<CardScreen> {
         if (saleRow.amount != null && saleRow.amount! > 0) {
           // Find the machine
           CardMachine? machine;
-          if (saleRow.selectedMachineId != null) {
-            // Try to find by ID first
-            try {
-              machine = _machines.firstWhere(
-                (m) => m.id == saleRow.selectedMachineId,
-              );
-            } catch (e) {
-              // If not found by ID, try to parse the key format: "tid_name"
-              final parts = saleRow.selectedMachineId!.split('_');
-              if (parts.length >= 2) {
-                final tid = parts[0];
-                final name = parts.sublist(1).join('_');
-                try {
-                  machine = _machines.firstWhere(
-                    (m) => m.tid == tid && m.name == name,
-                  );
-                } catch (e) {
-                  machine = _machines.isNotEmpty ? _machines.first : CardMachine(name: 'Unknown', tid: 'N/A');
-                }
-              } else {
-                machine = _machines.isNotEmpty ? _machines.first : CardMachine(name: 'Unknown', tid: 'N/A');
-              }
-            }
-          } else if (_machines.isNotEmpty) {
-            machine = _machines.first;
+          if (saleRow.selectedMachineId == 'others' || saleRow.selectedMachineId == null) {
+            machine = CardMachine(name: 'Others', tid: 'Others');
           } else {
-            // Create a default machine entry if none exists
-            machine = CardMachine(name: 'Default', tid: 'N/A');
+            machine = _findMachineByKey(saleRow.selectedMachineId);
+            machine ??= _machines.isNotEmpty
+                ? _machines.first
+                : CardMachine(name: 'Unknown', tid: 'N/A');
           }
 
           final sale = CardSale(
             date: widget.selectedDate,
             userId: user.id,
             branchId: branch.id,
+            cardMachineId: machine.id,
             tid: machine.tid,
             machineName: machine.name,
             amount: saleRow.amount!,
-            txnCount: saleRow.txnCountController.text.trim().isEmpty
-                ? null
-                : int.tryParse(saleRow.txnCountController.text.trim()),
             notes: saleRow.notesController.text.trim().isEmpty
                 ? null
                 : saleRow.notesController.text.trim(),
@@ -208,6 +293,7 @@ class _CardScreenState extends State<CardScreen> {
       await _loadData();
 
       if (mounted) {
+        setState(() => _isDirty = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Card sales saved successfully')),
         );
@@ -216,7 +302,7 @@ class _CardScreenState extends State<CardScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving card sales: $e')),
+          SnackBar(content: Text('Unable to save card sales. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
         );
       }
     } finally {
@@ -239,13 +325,20 @@ class _CardScreenState extends State<CardScreen> {
       );
     }
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_isDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final discard = await showUnsavedChangesDialog(context);
+        if (discard && context.mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text('Card Sales - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
         actions: [
-          if (_authService.canManageUsers())
+          if (_authService.canAccessManagementInCurrentBranch)
             IconButton(
-              icon: const Icon(Icons.settings),
+              icon: const Icon(Icons.credit_card),
               onPressed: () {
                 Navigator.push(
                   context,
@@ -285,67 +378,75 @@ class _CardScreenState extends State<CardScreen> {
               },
             ),
           ),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.1),
-                  blurRadius: 4,
-                  offset: const Offset(0, -2),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Total Card Sales:',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      '₹${_getTotalSales().toStringAsFixed(2)}',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _isSaving ? null : _save,
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                    child: _isSaving
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Save', style: TextStyle(fontSize: 16)),
+            SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.overlay,
+                    blurRadius: 4,
+                    offset: const Offset(0, -2),
                   ),
-                ),
-              ],
+                ],
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Total Card Sales:',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        CurrencyFormatter.format(_getTotalSales()),
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _isSaving ? null : _save,
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: _isSaving
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('Save', style: TextStyle(fontSize: 16)),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
       ),
+    ),
     );
   }
 
   Widget _buildSaleRow(int index) {
     final sale = _sales[index];
+    final requiresFields = sale.amount != null && sale.amount! > 0;
+    final showMachineError = _showValidationErrors &&
+        requiresFields &&
+        (sale.selectedMachineId == null || sale.selectedMachineId!.isEmpty);
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -356,45 +457,54 @@ class _CardScreenState extends State<CardScreen> {
             Row(
               children: [
                 Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: sale.selectedMachineId,
-                    decoration: const InputDecoration(
-                      labelText: 'Machine',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    items: _machines.isEmpty
-                        ? [
+                  child: sale.isMachineLocked
+                      ? InputDecorator(
+                          decoration: InputDecoration(
+                            labelText: 'Machine',
+                            border: const OutlineInputBorder(),
+                            isDense: true,
+                            errorText: showMachineError ? 'Select machine' : null,
+                          ),
+                          child: Text(sale.machineLabel ?? 'Machine'),
+                        )
+                      : DropdownButtonFormField<String>(
+                          initialValue: sale.selectedMachineId,
+                          decoration: InputDecoration(
+                            labelText: 'Machine',
+                            border: const OutlineInputBorder(),
+                            isDense: true,
+                            errorText: showMachineError ? 'Select machine' : null,
+                          ),
+                          items: [
+                            ..._machines.map((machine) {
+                              final machineKey = _machineKey(machine);
+                              return DropdownMenuItem(
+                                value: machineKey,
+                                child: Text(_machineLabel(machine)),
+                              );
+                            }),
                             const DropdownMenuItem(
-                              value: null,
-                              child: Text('No machines added'),
-                            )
-                          ]
-                        : _machines.map((machine) {
-                            final machineKey = machine.id ?? '${machine.tid}_${machine.name}';
-                            return DropdownMenuItem(
-                              value: machineKey,
-                              child: Text('${machine.name} (${machine.tid})'),
-                            );
-                          }).toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        sale.selectedMachineId = value;
-                      });
-                    },
-                  ),
+                              value: 'others',
+                              child: Text('Others'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            setState(() {
+                              _isDirty = true;
+                              sale.selectedMachineId = value;
+                            });
+                          },
+                        ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  icon: const Icon(Icons.delete_outline, color: AppColors.error),
                   onPressed: () => _removeSale(index),
+                  tooltip: 'Delete transaction',
                 ),
               ],
             ),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
+            TextField(
                     controller: sale.amountController,
                     decoration: const InputDecoration(
                       labelText: 'Sale Value',
@@ -408,27 +518,12 @@ class _CardScreenState extends State<CardScreen> {
                     ],
                     onChanged: (value) {
                       setState(() {
+                        _isDirty = true;
                         sale.amount = value.isEmpty
                             ? null
                             : double.tryParse(value);
                       });
                     },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: sale.txnCountController,
-                    decoration: const InputDecoration(
-                      labelText: 'Transaction Count (optional)',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  ),
-                ),
-              ],
             ),
             const SizedBox(height: 8),
             TextField(
@@ -439,6 +534,7 @@ class _CardScreenState extends State<CardScreen> {
                 isDense: true,
               ),
               maxLines: 2,
+              onChanged: (_) => setState(() => _isDirty = true),
             ),
           ],
         ),
@@ -449,16 +545,17 @@ class _CardScreenState extends State<CardScreen> {
 
 class CardSaleRow {
   final TextEditingController amountController = TextEditingController();
-  final TextEditingController txnCountController = TextEditingController();
   final TextEditingController notesController = TextEditingController();
   String? selectedMachineId;
   double? amount;
+  bool isMachineLocked = false;
+  String? machineLabel;
+  String? id; // Track if this row is saved in database
 
   CardSaleRow();
 
   void dispose() {
     amountController.dispose();
-    txnCountController.dispose();
     notesController.dispose();
   }
 }

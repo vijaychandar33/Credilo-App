@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/app_colors.dart';
 import '../models/branch.dart';
 import '../services/auth_service.dart';
 
@@ -41,7 +42,7 @@ class BranchSelector extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: DropdownButtonFormField<Branch>(
         isExpanded: true,
-        value: currentBranch,
+        initialValue: currentBranch,
         decoration: InputDecoration(
           labelText: 'Branch',
           border: OutlineInputBorder(
@@ -87,7 +88,7 @@ class BranchSelector extends StatelessWidget {
                         branch.location,
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.grey[600],
+                          color: AppColors.textTertiary,
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),

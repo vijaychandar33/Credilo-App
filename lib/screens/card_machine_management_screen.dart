@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../utils/app_colors.dart';
+import '../utils/error_message_helper.dart';
 import '../models/card_sale.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
@@ -14,11 +16,18 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
   final DatabaseService _dbService = DatabaseService();
   final AuthService _authService = AuthService();
   List<CardMachine> _machines = [];
+  Set<String> _machineIdsWithSales = {}; // card_machine_id that have sales (cannot delete)
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
+    if (!_authService.canAccessManagementInCurrentBranch) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).pop();
+      });
+      return;
+    }
     _loadMachines();
   }
 
@@ -39,14 +48,16 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
       }
 
       final machines = await _dbService.getCardMachines(branch.id);
+      final machineIdsWithSales = await _dbService.getCardMachineIdsWithCardSales(branch.id);
       setState(() {
         _machines = machines;
+        _machineIdsWithSales = machineIdsWithSales;
       });
     } catch (e) {
       debugPrint('Error loading card machines: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading machines: $e')),
+          SnackBar(content: Text('Unable to load machines. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
         );
       }
     } finally {
@@ -107,11 +118,14 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
                 return;
               }
 
+              final navigator = Navigator.of(context);
+              final messenger = ScaffoldMessenger.of(context);
+              
               try {
                 final branch = _authService.currentBranch;
                 if (branch == null) {
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    messenger.showSnackBar(
                       const SnackBar(content: Text('No branch selected')),
                     );
                   }
@@ -129,23 +143,21 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
                 );
 
                 await _dbService.saveCardMachine(updatedMachine);
-                if (mounted) {
-                  Navigator.pop(context);
-                  _loadMachines();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(machine == null
-                          ? 'Machine added successfully'
-                          : 'Machine updated successfully'),
-                    ),
-                  );
-                }
+                if (!mounted) return;
+                navigator.pop();
+                _loadMachines();
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text(machine == null
+                        ? 'Machine added successfully'
+                        : 'Machine updated successfully'),
+                  ),
+                );
               } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error saving machine: $e')),
-                  );
-                }
+                if (!mounted) return;
+                messenger.showSnackBar(
+                  SnackBar(content: Text('Unable to save machine. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
+                );
               }
             },
             child: Text(machine == null ? 'Add' : 'Update'),
@@ -155,8 +167,22 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
     );
   }
 
+  bool _canDeleteMachine(CardMachine machine) {
+    return machine.id == null || !_machineIdsWithSales.contains(machine.id);
+  }
+
   Future<void> _deleteMachine(CardMachine machine) async {
     if (machine.id == null) return;
+    if (!_canDeleteMachine(machine)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cannot delete: this machine has transactions. Delete is only allowed when there are no card sales.'),
+          ),
+        );
+      }
+      return;
+    }
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -171,7 +197,8 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
             ),
             child: const Text('Delete'),
           ),
@@ -190,9 +217,10 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error deleting machine: $e')),
-          );
+          final msg = e.toString().toLowerCase().contains('transaction') || e.toString().toLowerCase().contains('cannot delete')
+              ? 'Cannot delete: this machine has transactions.'
+              : 'Unable to delete machine. ${ErrorMessageHelper.getUserFriendlyError(e)}';
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
         }
       }
     }
@@ -218,11 +246,11 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.credit_card, size: 64, color: Colors.grey),
+                      const Icon(Icons.credit_card, size: 64, color: AppColors.textTertiary),
                       const SizedBox(height: 16),
                       const Text(
                         'No card machines added',
-                        style: TextStyle(fontSize: 18, color: Colors.grey),
+                        style: TextStyle(fontSize: 18, color: AppColors.textTertiary),
                       ),
                       const SizedBox(height: 8),
                       ElevatedButton.icon(
@@ -238,6 +266,7 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
                   itemCount: _machines.length,
                   itemBuilder: (context, index) {
                     final machine = _machines[index];
+                    final canDelete = _canDeleteMachine(machine);
                     return Card(
                       margin: const EdgeInsets.only(bottom: 12),
                       child: ListTile(
@@ -249,6 +278,18 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
                             Text('TID: ${machine.tid}'),
                             if (machine.location != null)
                               Text('Location: ${machine.location}'),
+                            if (!canDelete)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  'Has transactions — cannot delete',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textTertiary,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
                         trailing: Row(
@@ -260,9 +301,14 @@ class _CardMachineManagementScreenState extends State<CardMachineManagementScree
                               tooltip: 'Edit',
                             ),
                             IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.red),
-                              onPressed: () => _deleteMachine(machine),
-                              tooltip: 'Delete',
+                              icon: Icon(
+                                Icons.delete,
+                                color: canDelete ? AppColors.error : AppColors.textTertiary,
+                              ),
+                              onPressed: canDelete ? () => _deleteMachine(machine) : null,
+                              tooltip: canDelete
+                                  ? 'Delete'
+                                  : 'Cannot delete: machine has transactions',
                             ),
                           ],
                         ),

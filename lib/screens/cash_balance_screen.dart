@@ -4,6 +4,9 @@ import 'package:intl/intl.dart';
 import '../models/cash_count.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
+import '../utils/currency_formatter.dart';
+import '../utils/error_message_helper.dart';
+import '../utils/unsaved_changes_dialog.dart';
 
 class CashBalanceScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -34,10 +37,12 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
   };
 
   final Map<String, TextEditingController> _controllers = {};
+  final Map<String, FocusNode> _focusNodes = {};
   final DatabaseService _dbService = DatabaseService();
   final AuthService _authService = AuthService();
   bool _isLoading = false;
   bool _isSaving = false;
+  bool _isDirty = false;
 
   @override
   void initState() {
@@ -71,13 +76,15 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
           final value = denom.replaceAll('_coin', '');
           if (_coinCounts.containsKey(value)) {
             _coinCounts[value] = countValue;
-            _controllers['${value}_coin']?.text = countValue.toString();
+            _controllers['${value}_coin']?.text =
+                countValue == 0 ? '' : countValue.toString();
           }
         } else if (denom.endsWith('_note')) {
           final value = denom.replaceAll('_note', '');
           if (_noteCounts.containsKey(value)) {
             _noteCounts[value] = countValue;
-            _controllers['${value}_note']?.text = countValue.toString();
+            _controllers['${value}_note']?.text =
+                countValue == 0 ? '' : countValue.toString();
           }
         } else {
           // Legacy format - try to determine if it's coin or note
@@ -85,10 +92,12 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
           // Otherwise assign to the appropriate map
           if (_coinCounts.containsKey(denom) && !_noteCounts.containsKey(denom)) {
             _coinCounts[denom] = countValue;
-            _controllers['${denom}_coin']?.text = countValue.toString();
+            _controllers['${denom}_coin']?.text =
+                countValue == 0 ? '' : countValue.toString();
           } else if (_noteCounts.containsKey(denom) && !_coinCounts.containsKey(denom)) {
             _noteCounts[denom] = countValue;
-            _controllers['${denom}_note']?.text = countValue.toString();
+            _controllers['${denom}_note']?.text =
+                countValue == 0 ? '' : countValue.toString();
           }
         }
       }
@@ -97,6 +106,7 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
     } finally {
       setState(() {
         _isLoading = false;
+        _isDirty = false;
       });
     }
   }
@@ -104,11 +114,25 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
   void _initializeControllers() {
     // Use unique keys for coins and notes to avoid conflicts
     for (var denom in _coinCounts.keys) {
-      _controllers['${denom}_coin'] = TextEditingController(text: '0');
+      _createControllerAndFocusNode('${denom}_coin');
     }
     for (var denom in _noteCounts.keys) {
-      _controllers['${denom}_note'] = TextEditingController(text: '0');
+      _createControllerAndFocusNode('${denom}_note');
     }
+  }
+
+  void _createControllerAndFocusNode(String key) {
+    final controller = TextEditingController();
+    final focusNode = FocusNode();
+    focusNode.addListener(() {
+      if (focusNode.hasFocus) {
+        Future.microtask(() {
+          controller.selection = TextSelection(baseOffset: 0, extentOffset: controller.text.length);
+        });
+      }
+    });
+    _controllers[key] = controller;
+    _focusNodes[key] = focusNode;
   }
 
   double _getTotalCoins() {
@@ -129,13 +153,14 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
 
   void _updateCount(String denomination, int count, {required bool isCoin}) {
     setState(() {
+      _isDirty = true;
       final controllerKey = isCoin ? '${denomination}_coin' : '${denomination}_note';
       if (isCoin && _coinCounts.containsKey(denomination)) {
         _coinCounts[denomination] = count;
       } else if (!isCoin && _noteCounts.containsKey(denomination)) {
         _noteCounts[denomination] = count;
       }
-      _controllers[controllerKey]?.text = count.toString();
+      _controllers[controllerKey]?.text = count == 0 ? '' : count.toString();
     });
   }
 
@@ -217,6 +242,7 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
       await _dbService.saveCashCounts(cashCounts);
 
       if (mounted) {
+        setState(() => _isDirty = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Cash balance saved successfully')),
         );
@@ -225,7 +251,7 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving cash balance: $e')),
+          SnackBar(content: Text('Unable to save cash balance. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
         );
       }
     } finally {
@@ -235,6 +261,17 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
         });
       }
     }
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _controllers.values) {
+      controller.dispose();
+    }
+    for (final node in _focusNodes.values) {
+      node.dispose();
+    }
+    super.dispose();
   }
 
   @override
@@ -248,7 +285,14 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
       );
     }
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_isDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final discard = await showUnsavedChangesDialog(context);
+        if (discard && context.mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text('Cash Balance - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
       ),
@@ -267,51 +311,55 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
               ),
             ),
           ),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.1),
-                  blurRadius: 4,
-                  offset: const Offset(0, -2),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                _buildSummaryRow('Total Coins', _getTotalCoins()),
-                const SizedBox(height: 8),
-                _buildSummaryRow('Total Notes', _getTotalNotes()),
-                const Divider(),
-                _buildSummaryRow(
-                  'Total Cash in Hand',
-                  _getTotalCash(),
-                  isTotal: true,
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: (_isLoading || _isSaving) ? null : _save,
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                    child: _isSaving
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Save', style: TextStyle(fontSize: 16)),
+          SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.1),
+                    blurRadius: 4,
+                    offset: const Offset(0, -2),
                   ),
-                ),
-              ],
+                ],
+              ),
+              child: Column(
+                children: [
+                  _buildSummaryRow('Total Coins', _getTotalCoins()),
+                  const SizedBox(height: 8),
+                  _buildSummaryRow('Total Notes', _getTotalNotes()),
+                  const Divider(),
+                  _buildSummaryRow(
+                    'Total Cash in Hand',
+                    _getTotalCash(),
+                    isTotal: true,
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: (_isLoading || _isSaving) ? null : _save,
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: _isSaving
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('Save', style: TextStyle(fontSize: 16)),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
       ),
+    ),
     );
   }
 
@@ -344,7 +392,10 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
             SizedBox(
               width: 60,
               child: Text(
-                '₹$denomination',
+                CurrencyFormatter.format(
+                  int.parse(denomination),
+                  decimalDigits: 0,
+                ),
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -359,10 +410,11 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
             Expanded(
               child: TextField(
                 controller: _controllers[controllerKey],
+                focusNode: _focusNodes[controllerKey],
                 textAlign: TextAlign.center,
-                decoration: InputDecoration(
-                  hintText: 'Count',
-                  border: const OutlineInputBorder(),
+                decoration: const InputDecoration(
+                  hintText: '0',
+                  border: OutlineInputBorder(),
                   isDense: true,
                 ),
                 keyboardType: TextInputType.number,
@@ -378,7 +430,7 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
             SizedBox(
               width: 100,
               child: Text(
-                '₹${value.toStringAsFixed(0)}',
+                CurrencyFormatter.format(value, decimalDigits: 0),
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
@@ -404,7 +456,7 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
           ),
         ),
         Text(
-          '₹${amount.toStringAsFixed(2)}',
+          CurrencyFormatter.format(amount),
           style: TextStyle(
             fontSize: isTotal ? 20 : 16,
             fontWeight: FontWeight.bold,
@@ -415,14 +467,6 @@ class _CashBalanceScreenState extends State<CashBalanceScreen> {
         ),
       ],
     );
-  }
-
-  @override
-  void dispose() {
-    for (var controller in _controllers.values) {
-      controller.dispose();
-    }
-    super.dispose();
   }
 }
 

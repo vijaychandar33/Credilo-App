@@ -3,24 +3,26 @@ class CardSale {
   final DateTime date;
   final String userId;
   final String branchId;
+  final String? cardMachineId; // UUID; rename-safe link to card_machines
   final String tid;
   final String machineName;
   final double amount;
-  final int? txnCount;
   final String? notes;
   final DateTime? createdAt;
+  final String? lastEditedEmail;
 
   CardSale({
     this.id,
     required this.date,
     required this.userId,
     required this.branchId,
+    this.cardMachineId,
     required this.tid,
     required this.machineName,
     required this.amount,
-    this.txnCount,
     this.notes,
     this.createdAt,
+    this.lastEditedEmail,
   });
 
   Map<String, dynamic> toJson() {
@@ -29,12 +31,13 @@ class CardSale {
       'date': date.toIso8601String().split('T')[0],
       'user_id': userId,
       'branch_id': branchId,
+      if (cardMachineId != null) 'card_machine_id': cardMachineId,
       'tid': tid,
       'machine_name': machineName,
       'amount': amount,
-      'txn_count': txnCount,
       'notes': notes,
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+      if (lastEditedEmail != null) 'last_edited_email': lastEditedEmail,
     };
   }
 
@@ -44,14 +47,15 @@ class CardSale {
       date: DateTime.parse(json['date']),
       userId: json['user_id']?.toString() ?? '',
       branchId: json['branch_id']?.toString() ?? '',
+      cardMachineId: json['card_machine_id']?.toString(),
       tid: json['tid'] ?? '',
       machineName: json['machine_name'] ?? '',
       amount: (json['amount'] as num).toDouble(),
-      txnCount: json['txn_count'],
       notes: json['notes'],
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'])
           : null,
+      lastEditedEmail: json['last_edited_email']?.toString(),
     );
   }
 }

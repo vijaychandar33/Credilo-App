@@ -4,6 +4,9 @@ import 'package:intl/intl.dart';
 import '../models/cash_closing.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
+import '../utils/currency_formatter.dart';
+import '../utils/error_message_helper.dart';
+import '../utils/unsaved_changes_dialog.dart';
 
 class CashClosingScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -15,21 +18,20 @@ class CashClosingScreen extends StatefulWidget {
 }
 
 class _CashClosingScreenState extends State<CashClosingScreen> {
-  final TextEditingController openingController = TextEditingController();
-  final TextEditingController totalCashSalesController = TextEditingController();
-  final TextEditingController totalExpensesController = TextEditingController();
-  final TextEditingController countedCashController = TextEditingController();
   final TextEditingController withdrawnController = TextEditingController();
+  final TextEditingController withdrawnNotesController = TextEditingController();
   final DatabaseService _dbService = DatabaseService();
   final AuthService _authService = AuthService();
   bool _isLoading = false;
   bool _isSaving = false;
+  bool _isDirty = false;
 
   double _opening = 0;
   double _totalCashSales = 0;
   double _totalExpenses = 0;
   double _countedCash = 0;
   double _withdrawn = 0;
+  double _safeBalance = 0;
 
   @override
   void initState() {
@@ -51,31 +53,35 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
       final previousClosing = await _dbService.getCashClosing(previousDate, branch.id);
       if (previousClosing != null) {
         _opening = previousClosing.nextOpening;
-        openingController.text = _opening.toStringAsFixed(2);
       }
 
       // Load expenses for the day
       final expenses = await _dbService.getCashExpenses(widget.selectedDate, branch.id);
       _totalExpenses = expenses.fold(0.0, (sum, e) => sum + e.amount);
-      totalExpensesController.text = _totalExpenses.toStringAsFixed(2);
 
       // Load cash balance from cash counts
       final cashCounts = await _dbService.getCashCounts(widget.selectedDate, branch.id);
       _countedCash = cashCounts.fold(0.0, (sum, count) => sum + count.total);
-      countedCashController.text = _countedCash.toStringAsFixed(2);
-      debugPrint('Cash balance from cash counts: ₹${_countedCash.toStringAsFixed(2)}');
+      debugPrint(
+        'Cash balance from cash counts: ${CurrencyFormatter.format(_countedCash)}',
+      );
 
       // Calculate Total Cash Sales: (Cash in Hand - Opening Balance) + Total Cash Expenses
       _totalCashSales = (_countedCash - _opening) + _totalExpenses;
-      totalCashSalesController.text = _totalCashSales.toStringAsFixed(2);
-      debugPrint('Total Cash Sales calculated: (${_countedCash} - ${_opening}) + ${_totalExpenses} = ${_totalCashSales}');
+      debugPrint('Total Cash Sales calculated: ($_countedCash - $_opening) + $_totalExpenses = $_totalCashSales');
 
-      // Load existing cash closing if available (for withdrawn)
+      // Load existing cash closing if available (for withdrawn and notes)
       final existingClosing = await _dbService.getCashClosing(widget.selectedDate, branch.id);
       if (existingClosing != null) {
         _withdrawn = existingClosing.withdrawn;
         withdrawnController.text = _withdrawn.toStringAsFixed(2);
+        if (existingClosing.withdrawnNotes != null && existingClosing.withdrawnNotes!.isNotEmpty) {
+          withdrawnNotesController.text = existingClosing.withdrawnNotes!;
+        }
       }
+
+      // Load safe balance as of selected date
+      _safeBalance = await _dbService.getSafeBalanceAsOfDate(branch.id, widget.selectedDate);
 
       _calculateNextOpening();
     } catch (e) {
@@ -83,16 +89,14 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
     } finally {
       setState(() {
         _isLoading = false;
+        _isDirty = false;
       });
     }
   }
 
   void _calculateNextOpening() {
     setState(() {
-      // Recalculate Total Cash Sales when values change
       _totalCashSales = (_countedCash - _opening) + _totalExpenses;
-      totalCashSalesController.text = _totalCashSales.toStringAsFixed(2);
-      // UI will update automatically via _getNextOpening()
     });
   }
 
@@ -133,6 +137,9 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
         totalExpenses: _totalExpenses,
         countedCash: _countedCash,
         withdrawn: _withdrawn,
+        withdrawnNotes: withdrawnNotesController.text.trim().isEmpty 
+            ? null 
+            : withdrawnNotesController.text.trim(),
         adjustments: null,
         nextOpening: _getNextOpening(),
         discrepancy: _getDiscrepancy() == 0 ? null : _getDiscrepancy(),
@@ -141,6 +148,7 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
       await _dbService.saveCashClosing(closing);
 
       if (mounted) {
+        setState(() => _isDirty = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Cash closing saved successfully')),
         );
@@ -149,7 +157,7 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving cash closing: $e')),
+          SnackBar(content: Text('Unable to save cash closing. ${ErrorMessageHelper.getUserFriendlyError(e)}')),
         );
       }
     } finally {
@@ -168,118 +176,137 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
         appBar: AppBar(
           title: Text('Cash Closing - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
         ),
-        body: const Center(child: CircularProgressIndicator()),
+        body: const SafeArea(
+          top: false,
+          child: Center(child: CircularProgressIndicator()),
+        ),
       );
     }
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_isDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final discard = await showUnsavedChangesDialog(context);
+        if (discard && context.mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text('Cash Closing - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildField(
-              'Opening Balance',
-              openingController,
-              _opening,
-              (value) {
-                setState(() {
-                  _opening = value;
-                  _calculateNextOpening();
-                });
-              },
-              isEditable: false,
-              info: 'From previous day\'s closing balance',
-            ),
-            const SizedBox(height: 16),
-            _buildField(
-              'Total Cash Sales',
-              totalCashSalesController,
-              _totalCashSales,
-              (value) {
-                setState(() {
-                  _totalCashSales = value;
-                  _calculateNextOpening();
-                });
-              },
-              isEditable: false,
-              info: 'Calculated: (Cash in Hand - Opening Balance) + Total Cash Expenses',
-            ),
-            const SizedBox(height: 16),
-            _buildField(
-              'Total Cash Expenses',
-              totalExpensesController,
-              _totalExpenses,
-              (value) {
-                setState(() {
-                  _totalExpenses = value;
-                  _calculateNextOpening();
-                });
-              },
-              isEditable: false,
-              info: 'From Cash Daily Expense',
-            ),
-            const SizedBox(height: 16),
-            _buildField(
-              'Cash in Hand (Counted)',
-              countedCashController,
-              _countedCash,
-              (value) {
-                setState(() {
-                  _countedCash = value;
-                  _calculateNextOpening();
-                });
-              },
-              isEditable: false,
-              info: 'Auto-fetched from Cash Balance screen',
-            ),
-            const SizedBox(height: 16),
-            _buildField(
+      body: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Safe Balance Card
+              Card(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Safe Balance as of ${DateFormat('d MMM yyyy').format(widget.selectedDate)}',
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.info_outline, size: 18),
+                            onPressed: () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Safe balance as of ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        CurrencyFormatter.format(_safeBalance),
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildReadOnlyValueCard(
+                'Opening Balance',
+                _opening,
+                info: 'From previous day\'s closing balance',
+              ),
+              const SizedBox(height: 16),
+              _buildReadOnlyValueCard(
+                'Total Cash Sales',
+                _totalCashSales,
+                info: 'Calculated: (Cash in Hand - Opening Balance) + Total Cash Expenses',
+              ),
+              const SizedBox(height: 16),
+              _buildReadOnlyValueCard(
+                'Total Cash Expenses',
+                _totalExpenses,
+                info: 'From Cash Daily Expense',
+              ),
+              const SizedBox(height: 16),
+              _buildReadOnlyValueCard(
+                'Cash in Hand (Counted)',
+                _countedCash,
+                info: 'Auto-fetched from Cash Balance screen',
+              ),
+              const SizedBox(height: 16),
+              _buildField(
               'Withdrawn to Safe',
               withdrawnController,
               _withdrawn,
               (value) {
                 setState(() {
+                  _isDirty = true;
                   _withdrawn = value;
                   _calculateNextOpening();
                 });
               },
-              isEditable: true,
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
             Card(
-              color: Theme.of(context).colorScheme.primaryContainer,
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Calculations',
+                      'Notes (Optional)',
                       style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    _buildCalculationRow(
-                      'Expected Cash',
-                      _getExpectedCash(),
-                    ),
                     const SizedBox(height: 8),
-                    _buildCalculationRow(
-                      'Counted Cash',
-                      _countedCash,
-                    ),
-                    const Divider(),
-                    _buildCalculationRow(
-                      'Discrepancy',
-                      _getDiscrepancy(),
-                      isHighlight: true,
-                      isPositive: _getDiscrepancy() >= 0,
+                    TextField(
+                      controller: withdrawnNotesController,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                        hintText: 'Add notes about withdrawal...',
+                      ),
+                      maxLines: 3,
+                      textCapitalization: TextCapitalization.sentences,
+                      onChanged: (_) => setState(() => _isDirty = true),
                     ),
                   ],
                 ),
@@ -302,7 +329,7 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '₹${_getNextOpening().toStringAsFixed(2)}',
+                      CurrencyFormatter.format(_getNextOpening()),
                       style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
@@ -330,18 +357,70 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
                     : const Text('Save Closing', style: TextStyle(fontSize: 16)),
               ),
             ),
+            ],
+          ),
+        ),
+      ),
+    ),
+    );
+  }
+
+  /// Read-only value card matching Safe Balance style (fetched values, not editable).
+  Widget _buildReadOnlyValueCard(
+    String label,
+    double value, {
+    String? info,
+  }) {
+    return Card(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                if (info != null)
+                  IconButton(
+                    icon: const Icon(Icons.info_outline, size: 18),
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(info)),
+                      );
+                    },
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              CurrencyFormatter.format(value),
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
+  /// Editable field (used only for Withdrawn to Safe).
   Widget _buildField(
     String label,
     TextEditingController controller,
     double value,
     Function(double) onChanged, {
-    bool isEditable = false,
     String? info,
   }) {
     if (controller.text.isEmpty && value != 0) {
@@ -388,7 +467,6 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
               inputFormatters: [
                 FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
               ],
-              readOnly: !isEditable,
               onChanged: (text) {
                 final val = double.tryParse(text) ?? 0;
                 onChanged(val);
@@ -400,43 +478,10 @@ class _CashClosingScreenState extends State<CashClosingScreen> {
     );
   }
 
-  Widget _buildCalculationRow(
-    String label,
-    double value, {
-    bool isHighlight = false,
-    bool isPositive = true,
-  }) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: isHighlight ? 16 : 14,
-            fontWeight: isHighlight ? FontWeight.bold : FontWeight.normal,
-          ),
-        ),
-        Text(
-          '₹${value.toStringAsFixed(2)}',
-          style: TextStyle(
-            fontSize: isHighlight ? 18 : 14,
-            fontWeight: FontWeight.bold,
-            color: isHighlight
-                ? (isPositive ? Colors.green : Colors.red)
-                : null,
-          ),
-        ),
-      ],
-    );
-  }
-
   @override
   void dispose() {
-    openingController.dispose();
-    totalCashSalesController.dispose();
-    totalExpensesController.dispose();
-    countedCashController.dispose();
     withdrawnController.dispose();
+    withdrawnNotesController.dispose();
     super.dispose();
   }
 }

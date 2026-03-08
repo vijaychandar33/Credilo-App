@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
+import '../utils/app_colors.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../models/due.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
+import '../utils/currency_formatter.dart';
+import '../utils/delete_confirmation_dialog.dart';
+import '../utils/error_message_helper.dart';
+import '../utils/unsaved_changes_dialog.dart';
+import 'pending_dues_screen.dart';
 
 class DueScreen extends StatefulWidget {
   final DateTime selectedDate;
@@ -22,7 +28,8 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
   final AuthService _authService = AuthService();
   bool _isSaving = false;
   bool _isLoading = false;
-  List<String> _existingDueIds = []; // Track existing due IDs
+  bool _isDirty = false;
+  final List<String> _existingDueIds = []; // Track existing due IDs
 
   @override
   void initState() {
@@ -53,51 +60,33 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
       
       if (dues.isNotEmpty) {
         setState(() {
+          _isDirty = false;
           _receivables.clear();
           _payables.clear();
           _existingDueIds.clear();
           
           for (var due in dues) {
-            debugPrint('Loading due: ${due.party}, ${due.amount}, type: ${due.type}, status: ${due.status}');
+            debugPrint('Loading due: ${due.party}, ${due.amount}, type: ${due.type}');
             
             final row = DueRow(type: due.type);
             row.partyController.text = due.party;
             row.amountController.text = due.amount.toStringAsFixed(2);
             row.amount = due.amount;
-            row.dueDate = due.dueDate;
-            row.dueDateController.text = DateFormat('d MMM yyyy').format(due.dueDate);
-            
-            // Map status
-            switch (due.status) {
-              case DueStatus.open:
-                row.status = 'Open';
-                break;
-              case DueStatus.partiallyPaid:
-                row.status = 'Partially Paid';
-                break;
-              case DueStatus.paid:
-                row.status = 'Paid';
-                break;
-            }
-            // Ensure status is never null
-            if (row.status == null) {
-              row.status = 'Open';
-            }
-            
             if (due.remarks != null) {
               row.remarksController.text = due.remarks!;
             }
             
-            if (due.type == DueType.receivable) {
-              _receivables.add(row);
-              debugPrint('Added receivable: ${row.partyController.text}, status: ${row.status}');
-            } else {
-              _payables.add(row);
-              debugPrint('Added payable: ${row.partyController.text}, status: ${row.status}');
+            if (due.id != null) {
+              row.id = due.id!;
+              _existingDueIds.add(due.id!);
             }
             
-            if (due.id != null) {
-              _existingDueIds.add(due.id!);
+            if (due.type == DueType.receivable) {
+              _receivables.add(row);
+              debugPrint('Added receivable: ${row.partyController.text}');
+            } else {
+              _payables.add(row);
+              debugPrint('Added payable: ${row.partyController.text}');
             }
           }
           
@@ -123,24 +112,50 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
     } finally {
       setState(() {
         _isLoading = false;
+        _isDirty = false;
       });
     }
   }
 
   void _addNewReceivable() {
     setState(() {
+      _isDirty = true;
       _receivables.add(DueRow(type: DueType.receivable));
     });
   }
 
   void _addNewPayable() {
     setState(() {
+      _isDirty = true;
       _payables.add(DueRow(type: DueType.payable));
     });
   }
 
-  void _removeReceivable(int index) {
+  Future<void> _removeReceivable(int index) async {
+    final due = _receivables[index];
+    final hasValue = due.amount != null && due.amount! > 0;
+    
+    if (hasValue) {
+      final confirmed = await showDeleteConfirmationDialog(
+        context,
+        title: 'Delete Receivable',
+        message: 'Are you sure you want to delete this receivable?',
+      );
+      if (!confirmed) return;
+    }
+    
+    // If this row was saved to database, delete it
+    if (due.id != null) {
+      try {
+        await _dbService.deleteDue(due.id!);
+        _existingDueIds.remove(due.id!);
+      } catch (e) {
+        debugPrint('Error deleting due from database: $e');
+      }
+    }
+    
     setState(() {
+      _isDirty = true;
       _receivables.removeAt(index);
       if (_receivables.isEmpty) {
         _addNewReceivable();
@@ -148,8 +163,31 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
     });
   }
 
-  void _removePayable(int index) {
+  Future<void> _removePayable(int index) async {
+    final due = _payables[index];
+    final hasValue = due.amount != null && due.amount! > 0;
+    
+    if (hasValue) {
+      final confirmed = await showDeleteConfirmationDialog(
+        context,
+        title: 'Delete Payable',
+        message: 'Are you sure you want to delete this payable?',
+      );
+      if (!confirmed) return;
+    }
+    
+    // If this row was saved to database, delete it
+    if (due.id != null) {
+      try {
+        await _dbService.deleteDue(due.id!);
+        _existingDueIds.remove(due.id!);
+      } catch (e) {
+        debugPrint('Error deleting due from database: $e');
+      }
+    }
+    
     setState(() {
+      _isDirty = true;
       _payables.removeAt(index);
       if (_payables.isEmpty) {
         _addNewPayable();
@@ -201,25 +239,6 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
             errors.add('Receivable: Party name is required');
             continue; // Skip if party name is empty
           }
-          if (dueRow.dueDate == null) {
-            errors.add('Receivable: Due date is required');
-            continue; // Skip if due date is not set
-          }
-
-          DueStatus status;
-          switch (dueRow.status) {
-            case 'Open':
-              status = DueStatus.open;
-              break;
-            case 'Partially Paid':
-              status = DueStatus.partiallyPaid;
-              break;
-            case 'Paid':
-              status = DueStatus.paid;
-              break;
-            default:
-              status = DueStatus.open;
-          }
 
           try {
             final due = Due(
@@ -228,9 +247,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
               branchId: branch.id,
               party: dueRow.partyController.text.trim(),
               amount: dueRow.amount!,
-              dueDate: dueRow.dueDate!,
               type: DueType.receivable,
-              status: status,
               remarks: dueRow.remarksController.text.trim().isEmpty
                   ? null
                   : dueRow.remarksController.text.trim(),
@@ -242,7 +259,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
             debugPrint('Receivable saved successfully');
           } catch (e) {
             debugPrint('Error saving receivable: $e');
-            errors.add('Receivable: ${e.toString()}');
+            errors.add('Receivable: ${ErrorMessageHelper.getUserFriendlyError(e)}');
           }
         }
       }
@@ -254,25 +271,6 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
             errors.add('Payable: Party name is required');
             continue; // Skip if party name is empty
           }
-          if (dueRow.dueDate == null) {
-            errors.add('Payable: Due date is required');
-            continue; // Skip if due date is not set
-          }
-
-          DueStatus status;
-          switch (dueRow.status) {
-            case 'Open':
-              status = DueStatus.open;
-              break;
-            case 'Partially Paid':
-              status = DueStatus.partiallyPaid;
-              break;
-            case 'Paid':
-              status = DueStatus.paid;
-              break;
-            default:
-              status = DueStatus.open;
-          }
 
           try {
             final due = Due(
@@ -281,9 +279,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
               branchId: branch.id,
               party: dueRow.partyController.text.trim(),
               amount: dueRow.amount!,
-              dueDate: dueRow.dueDate!,
               type: DueType.payable,
-              status: status,
               remarks: dueRow.remarksController.text.trim().isEmpty
                   ? null
                   : dueRow.remarksController.text.trim(),
@@ -295,7 +291,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
             debugPrint('Payable saved successfully');
           } catch (e) {
             debugPrint('Error saving payable: $e');
-            errors.add('Payable: ${e.toString()}');
+            errors.add('Payable: ${ErrorMessageHelper.getUserFriendlyError(e)}');
           }
         }
       }
@@ -304,6 +300,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
       await _loadData();
 
       if (mounted) {
+        if (savedCount > 0) setState(() => _isDirty = false);
         if (savedCount > 0) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -320,7 +317,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No dues to save. Please add at least one due with amount, party name, and due date')),
+            const SnackBar(content: Text('No dues to save. Please add at least one due with amount and party name')),
           );
         }
         // Don't navigate away - let user continue editing if needed
@@ -328,8 +325,9 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
     } catch (e) {
       debugPrint('Error in save function: $e');
       if (mounted) {
+        final errorMessage = ErrorMessageHelper.getUserFriendlyError(e);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving dues: $e')),
+          SnackBar(content: Text('Unable to save dues. $errorMessage')),
         );
       }
     } finally {
@@ -352,9 +350,31 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
       );
     }
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_isDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final discard = await showUnsavedChangesDialog(context);
+        if (discard && context.mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text('Due - ${DateFormat('d MMM yyyy').format(widget.selectedDate)}'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.list_alt),
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const PendingDuesScreen(),
+                ),
+              );
+              if (mounted) _loadData();
+            },
+            tooltip: 'View pending dues',
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
@@ -370,6 +390,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
           _buildDueList(_payables, _removePayable, _addNewPayable, _getTotalPayables, 'Payables'),
         ],
       ),
+    ),
     );
   }
 
@@ -385,75 +406,78 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.all(16),
-            itemCount: dues.length,
+            itemCount: dues.length + 1, // +1 for the Add button
             itemBuilder: (context, index) {
+              if (index == dues.length) {
+                // Add button as the last item
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: FloatingActionButton.extended(
+                    onPressed: onAdd,
+                    label: const Text('Add'),
+                    icon: const Icon(Icons.add),
+                  ),
+                );
+              }
               return _buildDueRow(index, dues[index], () => onRemove(index));
             },
           ),
         ),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.1),
-                blurRadius: 4,
-                offset: const Offset(0, -2),
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Total $title:',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    '₹${getTotal().toStringAsFixed(2)}',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: FloatingActionButton.extended(
-                      onPressed: onAdd,
-                      label: const Text('Add'),
-                      icon: const Icon(Icons.add),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: _isSaving ? null : _save,
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+        SafeArea(
+          top: false,
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.overlay,
+                  blurRadius: 4,
+                  offset: const Offset(0, -2),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Total $title:',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
                       ),
-                      child: _isSaving
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Save', style: TextStyle(fontSize: 16)),
                     ),
+                    Text(
+                      CurrencyFormatter.format(getTotal()),
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _isSaving ? null : _save,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                    child: _isSaving
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Save', style: TextStyle(fontSize: 16)),
                   ),
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
         ),
       ],
@@ -478,19 +502,17 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
                       border: OutlineInputBorder(),
                       isDense: true,
                     ),
+                    onChanged: (_) => setState(() => _isDirty = true),
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  icon: const Icon(Icons.delete_outline, color: AppColors.error),
                   onPressed: onRemove,
                 ),
               ],
             ),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
+            TextField(
                     controller: due.amountController,
                     decoration: const InputDecoration(
                       labelText: 'Amount',
@@ -504,62 +526,12 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
                     ],
                     onChanged: (value) {
                       setState(() {
+                        _isDirty = true;
                         due.amount = value.isEmpty
                             ? null
                             : double.tryParse(value);
                       });
                     },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextButton(
-                    onPressed: () async {
-                      final date = await showDatePicker(
-                        context: context,
-                        initialDate: due.dueDate ?? DateTime.now(),
-                        firstDate: DateTime(2020),
-                        lastDate: DateTime(2100),
-                      );
-                      if (date != null) {
-                        setState(() {
-                          due.dueDate = date;
-                          due.dueDateController.text =
-                              DateFormat('d MMM yyyy').format(date);
-                        });
-                      }
-                    },
-                    child: Text(
-                      due.dueDateController.text.isEmpty
-                          ? 'Select Due Date'
-                          : due.dueDateController.text,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    value: due.status ?? 'Open',
-                    decoration: const InputDecoration(
-                      labelText: 'Status',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    items: ['Open', 'Partially Paid', 'Paid'].map((status) {
-                      return DropdownMenuItem(value: status, child: Text(status));
-                    }).toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        due.status = value;
-                      });
-                    },
-                  ),
-                ),
-              ],
             ),
             const SizedBox(height: 8),
             TextField(
@@ -570,6 +542,7 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
                 isDense: true,
               ),
               maxLines: 2,
+              onChanged: (_) => setState(() => _isDirty = true),
             ),
           ],
         ),
@@ -593,23 +566,16 @@ class _DueScreenState extends State<DueScreen> with SingleTickerProviderStateMix
 class DueRow {
   final TextEditingController partyController = TextEditingController();
   final TextEditingController amountController = TextEditingController();
-  final TextEditingController dueDateController = TextEditingController();
   final TextEditingController remarksController = TextEditingController();
   final DueType type;
-  String? status = 'Open';
   double? amount;
-  DateTime? dueDate;
+  String? id; // Track if this row is saved in database
 
-  DueRow({required this.type}) {
-    // Set default due date to 5 days from today
-    dueDate = DateTime.now().add(const Duration(days: 5));
-    dueDateController.text = DateFormat('d MMM yyyy').format(dueDate!);
-  }
+  DueRow({required this.type});
 
   void dispose() {
     partyController.dispose();
     amountController.dispose();
-    dueDateController.dispose();
     remarksController.dispose();
   }
 }
