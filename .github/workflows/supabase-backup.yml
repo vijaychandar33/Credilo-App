@@ -26,6 +26,12 @@ jobs:
       - name: Dump Supabase DB
         run: |
           set -e
+          # Trim newlines/spaces (pasted secrets often have trailing newline)
+          SUPABASE_DB_URL=$(printf '%s' "$SUPABASE_DB_URL" | tr -d '\n\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "SUPABASE_DB_URL is empty. Add it in repo Settings → Secrets and variables → Actions."
+            exit 1
+          fi
           echo "Running pg_dump (no Docker)..."
           pg_dump "$SUPABASE_DB_URL" --no-owner --no-acl -f backup.sql
           gzip -f backup.sql
