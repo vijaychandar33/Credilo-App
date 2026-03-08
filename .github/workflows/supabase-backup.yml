@@ -1,0 +1,34 @@
+# Supabase DB backup → Hostinger (FTP)
+# Runs every 6 hours. Secrets: SUPABASE_DB_URL, FTP_HOST, FTP_USER, FTP_PASSWORD, FTP_REMOTE_DIR
+# Repo: https://github.com/vijaychandar33/Credilo-App
+
+name: Supabase backup to Hostinger
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      FTP_HOST: ${{ secrets.FTP_HOST }}
+      FTP_USER: ${{ secrets.FTP_USER }}
+      FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+      FTP_REMOTE_DIR: ${{ secrets.FTP_REMOTE_DIR }}
+    steps:
+      - name: Dump Supabase DB
+        run: |
+          set -e
+          npx -y supabase@latest db dump --db-url "$SUPABASE_DB_URL" -f backup.sql
+          gzip -f backup.sql
+          mv backup.sql.gz "backup-$(date -u +%Y%m%d-%H%M).sql.gz"
+
+      - name: Upload to Hostinger via FTP
+        run: |
+          set -e
+          ENCODED_DIR=$(echo "$FTP_REMOTE_DIR" | sed 's/ /%20/g')
+          FILE=$(ls backup-*.sql.gz)
+          curl -f -T "$FILE" "ftp://$FTP_HOST/$ENCODED_DIR/" --user "$FTP_USER:$FTP_PASSWORD" --ftp-create-dirs --ftp-pasv -sS
