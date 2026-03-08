@@ -49,7 +49,7 @@ jobs:
           ENCODED_DIR=$(echo "$FTP_REMOTE_DIR" | sed 's/ /%20/g')
           FILE=$(ls backup-*.sql.gz)
           echo "Uploading $FILE to FTP..."
-          curl -T "$FILE" "ftp://$FTP_HOST/$ENCODED_DIR/" --user "$FTP_USER:$FTP_PASSWORD" --ftp-create-dirs --ftp-pasv --connect-timeout 30 --max-time 300 -v
+          curl -T "$FILE" "ftp://$FTP_HOST/$ENCODED_DIR/" --user "$FTP_USER:$FTP_PASSWORD" --ftp-create-dirs --ftp-pasv --connect-timeout 120 --max-time 300 -v
           # If backup is under public_html, deny web access
           printf '%s\n' 'Require all denied' 'Deny from all' > .htaccess
           curl -T .htaccess "ftp://$FTP_HOST/$ENCODED_DIR/" --user "$FTP_USER:$FTP_PASSWORD" --ftp-pasv --connect-timeout 15 -sS -o /dev/null || true
