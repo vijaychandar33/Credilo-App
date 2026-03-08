@@ -20,8 +20,12 @@ jobs:
       FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
       FTP_REMOTE_DIR: ${{ secrets.FTP_REMOTE_DIR }}
     steps:
-      - name: Install PostgreSQL client
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
 
       - name: Dump Supabase DB
         run: |
@@ -33,7 +37,7 @@ jobs:
             exit 1
           fi
           echo "Running pg_dump (no Docker)..."
-          pg_dump "$SUPABASE_DB_URL" --no-owner --no-acl -f backup.sql
+          /usr/lib/postgresql/17/bin/pg_dump "$SUPABASE_DB_URL" --no-owner --no-acl -f backup.sql
           gzip -f backup.sql
           mv backup.sql.gz "backup-$(date -u +%Y%m%d-%H%M).sql.gz"
           echo "Dump done: $(ls -la backup-*.sql.gz)"
