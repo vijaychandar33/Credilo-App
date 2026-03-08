@@ -1,5 +1,6 @@
 # Supabase DB backup → Hostinger (FTP)
 # Runs every 6 hours. Secrets: SUPABASE_DB_URL, FTP_HOST, FTP_USER, FTP_PASSWORD, FTP_REMOTE_DIR
+# To save outside public_html (root-level): use FTP user whose home = backup folder, set FTP_REMOTE_DIR=.
 # Repo: https://github.com/vijaychandar33/Credilo-App
 
 name: Supabase backup to Hostinger
@@ -48,5 +49,8 @@ jobs:
           ENCODED_DIR=$(echo "$FTP_REMOTE_DIR" | sed 's/ /%20/g')
           FILE=$(ls backup-*.sql.gz)
           echo "Uploading $FILE to FTP..."
-          curl -T "$FILE" "ftp://$FTP_HOST/$ENCODED_DIR/" --user "$FTP_USER:$FTP_PASSWORD" --ftp-create-dirs --ftp-pasv -v
+          curl -T "$FILE" "ftp://$FTP_HOST/$ENCODED_DIR/" --user "$FTP_USER:$FTP_PASSWORD" --ftp-create-dirs --ftp-pasv --connect-timeout 30 --max-time 300 -v
+          # If backup is under public_html, deny web access
+          printf '%s\n' 'Require all denied' 'Deny from all' > .htaccess
+          curl -T .htaccess "ftp://$FTP_HOST/$ENCODED_DIR/" --user "$FTP_USER:$FTP_PASSWORD" --ftp-pasv --connect-timeout 15 -sS -o /dev/null || true
           echo "Upload finished."
