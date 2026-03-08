@@ -22,13 +22,17 @@ jobs:
       - name: Dump Supabase DB
         run: |
           set -e
-          npx -y supabase@latest db dump --db-url "$SUPABASE_DB_URL" -f backup.sql
+          echo "Running supabase db dump..."
+          npx -y supabase@latest db dump --db-url "$SUPABASE_DB_URL" -f backup.sql || { echo "Dump failed - if connection error, try Session pooler URL (port 6543) in SUPABASE_DB_URL"; exit 1; }
           gzip -f backup.sql
           mv backup.sql.gz "backup-$(date -u +%Y%m%d-%H%M).sql.gz"
+          echo "Dump done: $(ls -la backup-*.sql.gz)"
 
       - name: Upload to Hostinger via FTP
         run: |
           set -e
           ENCODED_DIR=$(echo "$FTP_REMOTE_DIR" | sed 's/ /%20/g')
           FILE=$(ls backup-*.sql.gz)
-          curl -f -T "$FILE" "ftp://$FTP_HOST/$ENCODED_DIR/" --user "$FTP_USER:$FTP_PASSWORD" --ftp-create-dirs --ftp-pasv -sS
+          echo "Uploading $FILE to FTP..."
+          curl -T "$FILE" "ftp://$FTP_HOST/$ENCODED_DIR/" --user "$FTP_USER:$FTP_PASSWORD" --ftp-create-dirs --ftp-pasv -v 2>&1 | tail -20
+          echo "Upload finished."
