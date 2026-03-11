@@ -13,6 +13,7 @@ on:
 jobs:
   backup:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
       PGSSLMODE: require
